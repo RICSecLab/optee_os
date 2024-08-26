@@ -28,3 +28,5 @@ recipe-rproc_pub_key = $(PYTHON3) scripts/pem_to_pub_c.py \
 	--prefix rproc_pub_key --key $(RPROC_SIGN_KEY)    \
 	--out $(sub-dir-out)/rproc_pub_key.c
 endif
+
+subdirs-y += remote_attestation
