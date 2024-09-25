@@ -174,7 +174,7 @@ libdir = core/lib/scmi-server
 include mk/lib.mk
 endif
 
-ifeq ($(CFG_ATTESTATION_PTA),y)
+ifeq ($(CFG_REMOTE_ATTESTATION_PTA),y)
 libname = qcbor
 libdir = core/lib/qcbor
 include mk/lib.mk
