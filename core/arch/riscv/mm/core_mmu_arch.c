@@ -289,7 +289,7 @@ static void core_init_mmu_prtn_ta(struct mmu_partition *prtn)
 {
 	unsigned int core = 0;
 
-	assert(user_va_idx != -1);
+	assert(core_mmu_user_va_range_is_defined());
 
 	memset(prtn->user_pgts, 0, CFG_NUM_THREADS * RISCV_MMU_PGT_SIZE);
 	for (core = 0; core < CFG_TEE_CORE_NB_CORE; core++)
@@ -450,7 +450,7 @@ void asid_free(unsigned int asid)
 	if (asid) {
 		int i = asid - 1;
 
-		assert(i < RISCV_MMU_ASID_WIDTH && bit_test(&g_asid, i));
+		assert(i < RISCV_MMU_ASID_WIDTH && bit_test(g_asid, i));
 		bit_clear(g_asid, i);
 	}
 
@@ -466,6 +466,7 @@ bool arch_va2pa_helper(void *va, paddr_t *pa)
 	int level = 0;
 	unsigned int idx = 0;
 	struct mmu_partition *prtn = core_mmu_get_prtn();
+	vaddr_t offset_mask = 0;
 
 	assert(pa);
 
@@ -479,8 +480,8 @@ bool arch_va2pa_helper(void *va, paddr_t *pa)
 			thread_unmask_exceptions(exceptions);
 			return false;
 		} else if (core_mmu_entry_is_leaf(pte)) {
-			*pa = pte_to_pa(pte) |
-			      (vaddr & (BIT64(RISCV_PGSHIFT) - 1));
+			offset_mask = CORE_MMU_PAGE_OFFSET_MASK(level);
+			*pa = pte_to_pa(pte) | (vaddr & offset_mask);
 			thread_unmask_exceptions(exceptions);
 			return true;
 		}
@@ -636,7 +637,7 @@ core_mmu_get_user_mapping_entry(struct mmu_partition *prtn)
 {
 	struct mmu_pgt *pgt = core_mmu_get_root_pgt_va(prtn);
 
-	assert(user_va_idx != -1);
+	assert(core_mmu_user_va_range_is_defined());
 
 	return core_mmu_table_get_entry(pgt, user_va_idx);
 }
@@ -668,9 +669,14 @@ void core_mmu_set_user_map(struct core_mmu_user_map *map)
 	thread_unmask_exceptions(exceptions);
 }
 
+bool core_mmu_user_va_range_is_defined(void)
+{
+	return user_va_idx != -1;
+}
+
 void core_mmu_get_user_va_range(vaddr_t *base, size_t *size)
 {
-	assert(user_va_idx != -1);
+	assert(core_mmu_user_va_range_is_defined());
 
 	if (base)
 		*base = SHIFT_U64(user_va_idx, CORE_MMU_BASE_TABLE_SHIFT);

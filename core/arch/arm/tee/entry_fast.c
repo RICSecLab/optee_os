@@ -117,6 +117,9 @@ static void tee_entry_exchange_capabilities(struct thread_smc_args *args)
 
 	args->a1 |= OPTEE_SMC_SEC_CAP_RPC_ARG;
 	args->a3 = THREAD_RPC_MAX_NUM_PARAMS;
+
+	if (IS_ENABLED(CFG_RPMB_ANNOUNCE_PROBE_CAP))
+		args->a1 |= OPTEE_SMC_SEC_CAP_RPMB_PROBE;
 }
 
 static void tee_entry_disable_shm_cache(struct thread_smc_args *args)
