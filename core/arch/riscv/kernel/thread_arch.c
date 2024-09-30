@@ -98,8 +98,9 @@ static void thread_lazy_restore_ns_vfp(void)
 
 static void setup_unwind_user_mode(struct thread_scall_regs *regs)
 {
-	regs->ra = (uintptr_t)thread_unwind_user_mode;
+	regs->epc = (uintptr_t)thread_unwind_user_mode;
 	regs->status = xstatus_for_xret(true, PRV_S);
+	regs->ie = 0;
 	/*
 	 * We are going to exit user mode. The stack pointer must be set as the
 	 * original value it had before allocating space of scall "regs" and
@@ -109,8 +110,8 @@ static void setup_unwind_user_mode(struct thread_scall_regs *regs)
 	regs->sp = (uintptr_t)(regs + 1);
 }
 
-static void thread_unhandled_trap(unsigned long cause __unused,
-				  struct thread_ctx_regs *regs __unused)
+static void thread_unhandled_trap(struct thread_ctx_regs *regs __unused,
+				  unsigned long cause __unused)
 {
 	DMSG("Unhandled trap xepc:0x%016lx xcause:0x%016lx xtval:0x%016lx",
 	     read_csr(CSR_XEPC), read_csr(CSR_XCAUSE), read_csr(CSR_XTVAL));
@@ -135,11 +136,15 @@ void thread_scall_handler(struct thread_scall_regs *regs)
 
 	assert(sess && sess->handle_scall);
 
-	if (!sess->handle_scall(regs)) {
+	if (sess->handle_scall(regs)) {
+		/*
+		 * We're about to switch back to next instruction of ecall in
+		 * user-mode
+		 */
+		regs->epc += 4;
+	} else {
+		/* We're returning from __thread_enter_user_mode() */
 		setup_unwind_user_mode(regs);
-		thread_exit_user_mode(regs->a0, regs->a1, regs->a2,
-				      regs->a3, regs->sp, regs->ra,
-				      regs->status);
 	}
 }
 
@@ -148,20 +153,21 @@ static void thread_irq_handler(void)
 	interrupt_main_handler();
 }
 
-void thread_interrupt_handler(unsigned long cause, struct thread_ctx_regs *regs)
+void thread_native_interrupt_handler(struct thread_ctx_regs *regs,
+				     unsigned long cause)
 {
 	switch (cause & LONG_MAX) {
 	case IRQ_XTIMER:
 		clear_csr(CSR_XIE, CSR_XIE_TIE);
 		break;
 	case IRQ_XSOFT:
-		thread_unhandled_trap(cause, regs);
+		thread_unhandled_trap(regs, cause);
 		break;
 	case IRQ_XEXT:
 		thread_irq_handler();
 		break;
 	default:
-		thread_unhandled_trap(cause, regs);
+		thread_unhandled_trap(regs, cause);
 	}
 }
 
@@ -501,7 +507,7 @@ static void set_ctx_regs(struct thread_ctx_regs *regs, unsigned long a0,
 		.a3 = a3,
 		.s0 = 0,
 		.sp = user_sp,
-		.ra = entry_func,
+		.epc = entry_func,
 		.status = status,
 		.ie = ie,
 	};

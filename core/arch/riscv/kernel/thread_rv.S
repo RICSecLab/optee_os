@@ -12,6 +12,9 @@
 #include <mm/core_mmu.h>
 #include <riscv.h>
 #include <riscv_macros.S>
+#include <tee/optee_abi.h>
+#include <tee/teeabi_opteed.h>
+#include <tee/teeabi_opteed_macros.h>
 
 .macro get_thread_ctx res, tmp0
 	lw	\tmp0, THREAD_CORE_LOCAL_CURR_THREAD(tp)
@@ -88,15 +91,57 @@ interrupt_from_kernel:
 	store_xregs sp, THREAD_CTX_REG_EPC, REG_T0
 
 	/*
-	 * a0 = cause
-	 * a1 = sp
-	 * Call thread_interrupt_handler(cause, regs)
+	 * a0 = struct thread_ctx_regs *regs
+	 * a1 = cause
 	 */
-	csrr	a0, CSR_XCAUSE
-	mv	a1, sp
+	mv	a0, sp
+	csrr	a1, CSR_XCAUSE
 	/* Load tmp_stack_va_end as current sp. */
 	load_xregs tp, THREAD_CORE_LOCAL_TMP_STACK_VA_END, REG_SP
-	call	thread_interrupt_handler
+
+	/*
+	 * Get interrupt code from XCAUSE and build XIP. For example, if the
+	 * value of XCAUSE is 0x8000000000000005 (supervisor timer interrupt),
+	 * we build 0x20, which is (1 << 5) and indicates the sip.STIP signal.
+	 */
+	li	a2, CSR_XCAUSE_INTR_FLAG
+	sub	a2, a1, a2
+	li	a3, 1
+	sll	a3, a3, a2
+	/*
+	 * Compare built XIP with THREAD_EXCP_FOREIGN_INTR. If XIP is one of
+	 * THREAD_EXCP_FOREIGN_INTR, we call thread_foreign_interrupt_handler().
+	 */
+	li	a2, THREAD_EXCP_FOREIGN_INTR
+	and	a2, a3, a2
+	beqz	a2, native_interrupt_from_kernel
+
+foreign_interrupt_from_kernel:
+	/*
+	 * a0 = struct thread_ctx_regs *regs
+	 * Tail call thread_foreign_interrupt_handler(regs) since we will not
+	 * return to here.
+	 */
+	tail	thread_foreign_interrupt_handler
+
+native_interrupt_from_kernel:
+	/* Update 32-bit core local flags */
+	lw	a2, THREAD_CORE_LOCAL_FLAGS(tp)
+	slli	a2, a2, THREAD_CLF_SAVED_SHIFT
+	ori	a2, a2, (THREAD_CLF_TMP | THREAD_CLF_IRQ)
+	sw	a2, THREAD_CORE_LOCAL_FLAGS(tp)
+
+	/*
+	 * a0 = struct thread_ctx_regs *regs
+	 * a1 = cause
+	 * Call thread_native_interrupt_handler(regs, cause)
+	 */
+	call	thread_native_interrupt_handler
+
+	/* Update 32-bit core local flags */
+	lw	a2, THREAD_CORE_LOCAL_FLAGS(tp)
+	srli	a2, a2, THREAD_CLF_SAVED_SHIFT
+	sw	a2, THREAD_CORE_LOCAL_FLAGS(tp)
 
 	/* Get thread context as sp */
 	get_thread_ctx sp, t0
@@ -109,8 +154,8 @@ interrupt_from_kernel:
 	/* Restore XSTATUS */
 	load_xregs sp, THREAD_CTX_REG_STATUS, REG_T0
 	csrw	CSR_XSTATUS, t0
-	/* Set scratch as thread_core_local */
-	csrw	CSR_XSCRATCH, tp
+	/* We are going to XRET to kernel mode. Set XSCRATCH as 0 */
+	csrw	CSR_XSCRATCH, 0
 	/* Restore all GPRs */
 	load_xregs sp, THREAD_CTX_REG_RA, REG_RA
 	load_xregs sp, THREAD_CTX_REG_GP, REG_GP
@@ -207,8 +252,8 @@ set_sp:
 	/* Restore XSTATUS */
 	load_xregs sp, THREAD_ABT_REG_STATUS, REG_T0
 	csrw	CSR_XSTATUS, t0
-	/* Set scratch as thread_core_local */
-	csrw	CSR_XSCRATCH, tp
+	/* We are going to XRET to kernel mode. Set XSCRATCH as 0 */
+	csrw	CSR_XSCRATCH, 0
 
 	/* Update core local flags */
 	lw	a0, THREAD_CORE_LOCAL_FLAGS(tp)
@@ -283,15 +328,57 @@ interrupt_from_user:
 	store_xregs sp, THREAD_CTX_REG_EPC, REG_T0
 
 	/*
-	 * a0 = cause
-	 * a1 = sp
-	 * Call thread_interrupt_handler(cause, regs)
+	 * a0 = struct thread_ctx_regs *regs
+	 * a1 = cause
 	 */
-	csrr	a0, CSR_XCAUSE
-	mv	a1, sp
+	mv	a0, sp
+	csrr	a1, CSR_XCAUSE
 	/* Load tmp_stack_va_end as current sp. */
 	load_xregs tp, THREAD_CORE_LOCAL_TMP_STACK_VA_END, REG_SP
-	call	thread_interrupt_handler
+
+	/*
+	 * Get interrupt code from XCAUSE and build XIP. For example, if the
+	 * value of XCAUSE is 0x8000000000000005 (supervisor timer interrupt),
+	 * we build 0x20, which is (1 << 5) and indicates the sip.STIP signal.
+	 */
+	li	a2, CSR_XCAUSE_INTR_FLAG
+	sub	a2, a1, a2
+	li	a3, 1
+	sll	a3, a3, a2
+	/*
+	 * Compare built XIP with THREAD_EXCP_FOREIGN_INTR. If XIP is one of
+	 * THREAD_EXCP_FOREIGN_INTR, call thread_foreign_interrupt_handler().
+	 */
+	li	a2, THREAD_EXCP_FOREIGN_INTR
+	and	a2, a3, a2
+	beqz	a2, native_interrupt_from_user
+
+foreign_interrupt_from_user:
+	/*
+	 * a0 = struct thread_ctx_regs *regs
+	 * Tail call thread_foreign_interrupt_handler(regs) since we will not
+	 * return to here.
+	 */
+	tail	thread_foreign_interrupt_handler
+
+native_interrupt_from_user:
+	/* Update 32-bit core local flags */
+	lw	a2, THREAD_CORE_LOCAL_FLAGS(tp)
+	slli	a2, a2, THREAD_CLF_SAVED_SHIFT
+	ori	a2, a2, (THREAD_CLF_TMP | THREAD_CLF_IRQ)
+	sw	a2, THREAD_CORE_LOCAL_FLAGS(tp)
+
+	/*
+	 * a0 = struct thread_ctx_regs *regs
+	 * a1 = cause
+	 * Call thread_native_interrupt_handler(regs, cause)
+	 */
+	call	thread_native_interrupt_handler
+
+	/* Update 32-bit core local flags */
+	lw	a2, THREAD_CORE_LOCAL_FLAGS(tp)
+	srli	a2, a2, THREAD_CLF_SAVED_SHIFT
+	sw	a2, THREAD_CORE_LOCAL_FLAGS(tp)
 
 	/* Get thread context as sp */
 	get_thread_ctx sp, t0
@@ -385,27 +472,35 @@ ecall_from_user:
 	addi	t0, sp, THREAD_SCALL_REGS_SIZE
 	store_xregs a0, THREAD_CTX_KERN_SP, REG_T0
 
-	/*
-	 * We are returning to U-Mode, on return, the program counter
-	 * is set to xsepc (pc=xepc), we add 4 (size of an instruction)
-	 * to continue to next instruction.
-	 */
+	/* Restore XEPC */
 	load_xregs sp, THREAD_SCALL_REG_EPC, REG_T0
-	addi	t0, t0, 4
 	csrw	CSR_XEPC, t0
-
 	/* Restore XIE */
 	load_xregs sp, THREAD_SCALL_REG_IE, REG_T0
 	csrw	CSR_XIE, t0
 	/* Restore XSTATUS */
 	load_xregs sp, THREAD_SCALL_REG_STATUS, REG_T0
 	csrw	CSR_XSTATUS, t0
-	/* Set scratch as thread_core_local */
+	/* Check previous privilege mode by status.SPP */
+	b_if_prev_priv_is_u t0, 1f
+	/*
+	 * We are going to XRET to kernel mode.
+	 * XSCRATCH is already zero to indicate that we are in kernel mode.
+	 * We must keep kernel gp & tp, so skip restoring user gp & tp.
+	 */
+	j	2f
+1:
+	/*
+	 * We are going to XRET to user mode.
+	 * XSCRATCH must be tp(thread_core_local) to be used in next trap.
+	 * We also need to restore user gp & tp
+	 */
 	csrw	CSR_XSCRATCH, tp
-	/* Restore caller-saved registers */
-	load_xregs sp, THREAD_SCALL_REG_RA, REG_RA
 	load_xregs sp, THREAD_SCALL_REG_GP, REG_GP
 	load_xregs sp, THREAD_SCALL_REG_TP, REG_TP
+2:
+	/* Restore remaining caller-saved registers */
+	load_xregs sp, THREAD_SCALL_REG_RA, REG_RA
 	load_xregs sp, THREAD_SCALL_REG_T0, REG_T0, REG_T2
 	load_xregs sp, THREAD_SCALL_REG_A0, REG_A0, REG_A7
 	load_xregs sp, THREAD_SCALL_REG_T3, REG_T3, REG_T6
@@ -499,18 +594,32 @@ abort_from_user:
 	/* Restore XSTATUS */
 	load_xregs sp, THREAD_ABT_REG_STATUS, REG_T0
 	csrw	CSR_XSTATUS, t0
-	/* Set scratch as thread_core_local */
-	csrw	CSR_XSCRATCH, tp
 
 	/* Update core local flags */
 	lw	a0, THREAD_CORE_LOCAL_FLAGS(tp)
 	srli	a0, a0, THREAD_CLF_SAVED_SHIFT
 	sw	a0, THREAD_CORE_LOCAL_FLAGS(tp)
 
-	/* Restore all GPRs */
-	load_xregs sp, THREAD_ABT_REG_RA, REG_RA
+	/* Check previous privilege mode by status.SPP */
+	b_if_prev_priv_is_u t0, 1f
+	/*
+	 * We are going to XRET to kernel mode.
+	 * XSCRATCH is already zero to indicate that we are in kernel mode.
+	 * We must keep kernel gp & tp, so skip restoring user gp & tp.
+	 */
+	j	2f
+1:
+	/*
+	 * We are going to XRET to user mode.
+	 * XSCRATCH must be tp(thread_core_local) to be used in next trap.
+	 * We also need to restore user gp & tp
+	 */
+	csrw	CSR_XSCRATCH, tp
 	load_xregs sp, THREAD_ABT_REG_GP, REG_GP
 	load_xregs sp, THREAD_ABT_REG_TP, REG_TP
+2:
+	/* Restore remaining GPRs */
+	load_xregs sp, THREAD_ABT_REG_RA, REG_RA
 	load_xregs sp, THREAD_ABT_REG_T0, REG_T0, REG_T2
 	load_xregs sp, THREAD_ABT_REG_S0, REG_S0, REG_S1
 	load_xregs sp, THREAD_ABT_REG_A0, REG_A0, REG_A7
@@ -551,37 +660,6 @@ FUNC thread_unwind_user_mode , :
 END_FUNC thread_unwind_user_mode
 
 /*
- * void thread_exit_user_mode(unsigned long a0, unsigned long a1,
- *			       unsigned long a2, unsigned long a3,
- *			       unsigned long sp, unsigned long pc,
- *			       unsigned long status);
- */
-FUNC thread_exit_user_mode , :
-	/* Set kernel stack pointer */
-	mv	sp, a4
-
-	/* Set xSTATUS */
-	csrw	CSR_XSTATUS, a6
-
-	/*
-	 * Zeroize xSCRATCH to indicate to thread_trap_vect()
-	 * that we are executing in kernel.
-	 */
-	csrw	CSR_XSCRATCH, zero
-
-	/*
-	 * Mask all interrupts first. Interrupts will be unmasked after
-	 * returning from __thread_enter_user_mode().
-	 */
-	csrw	CSR_XIE, zero
-
-	/* Set epc as thread_unwind_user_mode() */
-	csrw	CSR_XEPC, a5
-
-	XRET
-END_FUNC thread_exit_user_mode
-
-/*
  * uint32_t __thread_enter_user_mode(struct thread_ctx_regs *regs,
  *				     uint32_t *exit_status0,
  *				     uint32_t *exit_status1);
@@ -608,7 +686,7 @@ FUNC __thread_enter_user_mode , :
 
 	/*
 	 * Save kernel stack pointer to ensure that
-	 * thread_exit_user_mode() uses correct stack pointer.
+	 * exception_from_user() uses correct stack pointer.
 	 */
 
 	store_xregs s0, THREAD_CTX_KERN_SP, REG_SP
@@ -618,24 +696,28 @@ FUNC __thread_enter_user_mode , :
 	 */
 	csrw	CSR_XSCRATCH, tp
 
+	/* Move struct thread_ctx_regs *regs to sp to reduce code size */
+	mv	sp, a0
+
+	/* Set exception return PC */
+	load_xregs sp, THREAD_CTX_REG_EPC, REG_S0
+	csrw	CSR_XEPC, s0
 	/* Set user ie */
-	load_xregs a0, THREAD_CTX_REG_IE, REG_S0
+	load_xregs sp, THREAD_CTX_REG_IE, REG_S0
 	csrw	CSR_XIE, s0
-
 	/* Set user status */
-	load_xregs a0, THREAD_CTX_REG_STATUS, REG_S0
+	load_xregs sp, THREAD_CTX_REG_STATUS, REG_S0
 	csrw	CSR_XSTATUS, s0
-
 	/* Load the rest of the general purpose registers */
-	load_xregs a0, THREAD_CTX_REG_RA, REG_RA, REG_TP
-	load_xregs a0, THREAD_CTX_REG_T0, REG_T0, REG_T2
-	load_xregs a0, THREAD_CTX_REG_S0, REG_S0, REG_S1
-	load_xregs a0, THREAD_CTX_REG_S2, REG_S2, REG_S11
-	load_xregs a0, THREAD_CTX_REG_T3, REG_T3, REG_T6
-	load_xregs a0, THREAD_CTX_REG_A0, REG_A0, REG_A7
-
-	/* Set exception program counter */
-	csrw		CSR_XEPC, ra
+	load_xregs sp, THREAD_CTX_REG_RA, REG_RA
+	load_xregs sp, THREAD_CTX_REG_GP, REG_GP
+	load_xregs sp, THREAD_CTX_REG_TP, REG_TP
+	load_xregs sp, THREAD_CTX_REG_T0, REG_T0, REG_T2
+	load_xregs sp, THREAD_CTX_REG_S0, REG_S0, REG_S1
+	load_xregs sp, THREAD_CTX_REG_A0, REG_A0, REG_A7
+	load_xregs sp, THREAD_CTX_REG_S2, REG_S2, REG_S11
+	load_xregs sp, THREAD_CTX_REG_T3, REG_T3, REG_T6
+	load_xregs sp, THREAD_CTX_REG_SP, REG_SP /* sp must be last one */
 
 	/* Jump into user mode */
 	XRET
@@ -646,16 +728,17 @@ FUNC thread_resume , :
 	/* Disable global interrupts first */
 	csrc	CSR_XSTATUS, CSR_XSTATUS_IE
 
+	/* Move struct thread_ctx_regs *regs to sp to reduce code size */
+	mv	sp, a0
+
 	/* Restore epc */
-	load_xregs a0, THREAD_CTX_REG_EPC, REG_T0
+	load_xregs sp, THREAD_CTX_REG_EPC, REG_T0
 	csrw	CSR_XEPC, t0
-
 	/* Restore ie */
-	load_xregs a0, THREAD_CTX_REG_IE, REG_T0
+	load_xregs sp, THREAD_CTX_REG_IE, REG_T0
 	csrw	CSR_XIE, t0
-
 	/* Restore status */
-	load_xregs a0, THREAD_CTX_REG_STATUS, REG_T0
+	load_xregs sp, THREAD_CTX_REG_STATUS, REG_T0
 	csrw	CSR_XSTATUS, t0
 
 	/* Check if previous privilege mode by status.SPP */
@@ -668,12 +751,52 @@ FUNC thread_resume , :
 	csrw	CSR_XSCRATCH, tp
 2:
 	/* Restore all general-purpose registers */
-	load_xregs a0, THREAD_CTX_REG_RA, REG_RA, REG_TP
-	load_xregs a0, THREAD_CTX_REG_T0, REG_T0, REG_T2
-	load_xregs a0, THREAD_CTX_REG_S0, REG_S0, REG_S1
-	load_xregs a0, THREAD_CTX_REG_S2, REG_S2, REG_S11
-	load_xregs a0, THREAD_CTX_REG_T3, REG_T3, REG_T6
-	load_xregs a0, THREAD_CTX_REG_A0, REG_A0, REG_A7
+	load_xregs sp, THREAD_CTX_REG_RA, REG_RA
+	load_xregs sp, THREAD_CTX_REG_GP, REG_GP
+	load_xregs sp, THREAD_CTX_REG_TP, REG_TP
+	load_xregs sp, THREAD_CTX_REG_T0, REG_T0, REG_T2
+	load_xregs sp, THREAD_CTX_REG_S0, REG_S0, REG_S1
+	load_xregs sp, THREAD_CTX_REG_A0, REG_A0, REG_A7
+	load_xregs sp, THREAD_CTX_REG_S2, REG_S2, REG_S11
+	load_xregs sp, THREAD_CTX_REG_T3, REG_T3, REG_T6
+	load_xregs sp, THREAD_CTX_REG_SP, REG_SP /* sp must be last one */
 
 	XRET
 END_FUNC thread_resume
+
+/* void thread_foreign_interrupt_handler(struct thread_ctx_regs *regs) */
+FUNC thread_foreign_interrupt_handler , :
+	/* Update 32-bit core local flags */
+	lw	s1, THREAD_CORE_LOCAL_FLAGS(tp)
+	slli	s1, s1, THREAD_CLF_SAVED_SHIFT
+	ori	s1, s1, (THREAD_CLF_TMP | THREAD_CLF_FIQ)
+	sw	s1, THREAD_CORE_LOCAL_FLAGS(tp)
+
+	/*
+	 * Mark current thread as suspended.
+	 * a0 = THREAD_FLAGS_EXIT_ON_FOREIGN_INTR
+	 * a1 = status
+	 * a2 = epc
+	 * thread_state_suspend(flags, status, pc)
+	 */
+	LDR	a1, THREAD_CTX_REG_STATUS(a0)
+	LDR	a2, THREAD_CTX_REG_EPC(a0)
+	li	a0, THREAD_FLAGS_EXIT_ON_FOREIGN_INTR
+	call	thread_state_suspend
+	/* Now return value a0 contains suspended thread ID. */
+
+	/* Update core local flags */
+	lw	s1, THREAD_CORE_LOCAL_FLAGS(tp)
+	srli	s1, s1, THREAD_CLF_SAVED_SHIFT
+	ori	s1, s1, THREAD_CLF_TMP
+	sw	s1, THREAD_CORE_LOCAL_FLAGS(tp)
+
+	/* Passing thread index in a0, and return to untrusted domain. */
+	mv	a4, a0
+	li	a0, TEEABI_OPTEED_RETURN_CALL_DONE
+	li	a1, OPTEE_ABI_RETURN_RPC_FOREIGN_INTR
+	li	a2, 0
+	li	a3, 0
+	li	a5, 0
+	j	thread_return_to_udomain
+END_FUNC thread_foreign_interrupt_handler

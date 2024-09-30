@@ -60,8 +60,10 @@ struct thread_user_mode_rec {
 
 extern long thread_user_kcode_offset;
 
-void thread_interrupt_handler(unsigned long cause,
-			      struct thread_ctx_regs *regs);
+void thread_native_interrupt_handler(struct thread_ctx_regs *regs,
+				     unsigned long cause);
+void thread_foreign_interrupt_handler(struct thread_ctx_regs *regs);
+
 /*
  * Initializes TVEC for current hart. Called by thread_init_per_cpu()
  */
@@ -126,10 +128,6 @@ static inline void thread_rpc(uint32_t rv[THREAD_RPC_NUM_ARGS])
 }
 
 void thread_scall_handler(struct thread_scall_regs *regs);
-void thread_exit_user_mode(unsigned long a0, unsigned long a1,
-			   unsigned long a2, unsigned long a3,
-			   unsigned long sp, unsigned long pc,
-			   unsigned long status);
 
 #endif /*__ASSEMBLER__*/
 #endif /*__KERNEL_THREAD_PRIVATE_ARCH_H*/
