@@ -2,9 +2,9 @@ global-incdirs-y += inc
 
 cflags-y += -Wno-declaration-after-statement
 cflags-y += -Wno-redundant-decls
-global-cpp-flags-y += -DQCBOR_DISABLE_FLOAT_HW_USE
-global-cpp-flags-y += -DQCBOR_DISABLE_PREFERRED_FLOAT
-global-cpp-flags-y += -DUSEFULBUF_DISABLE_ALL_FLOAT
+global-cppflags-y += -DQCBOR_DISABLE_FLOAT_HW_USE
+global-cppflags-y += -DQCBOR_DISABLE_PREFERRED_FLOAT
+global-cppflags-y += -DUSEFULBUF_DISABLE_ALL_FLOAT
 
 srcs-y += src/ieee754.c
 srcs-y += src/qcbor_decode.c
