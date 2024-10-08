@@ -15,7 +15,7 @@
  * Include before QCBOR_DISABLE_PREFERRED_FLOAT is checked as
  * QCBOR_DISABLE_PREFERRED_FLOAT might be defined in qcbor/qcbor_common.h
  */
-#include "qcbor/qcbor_common.h"
+#include "qcbor_common.h"
 
 #ifndef QCBOR_DISABLE_PREFERRED_FLOAT
 

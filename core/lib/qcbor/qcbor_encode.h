@@ -36,8 +36,8 @@
 #define qcbor_encode_h
 
 
-#include "qcbor/qcbor_common.h"
-#include "qcbor/qcbor_private.h"
+#include "qcbor_common.h"
+#include "qcbor_private.h"
 #include <stdbool.h>
 
 

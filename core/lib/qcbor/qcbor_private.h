@@ -38,7 +38,7 @@
 
 #include <stdint.h>
 #include "UsefulBuf.h"
-#include "qcbor/qcbor_common.h"
+#include "qcbor_common.h"
 
 
 #ifdef __cplusplus
