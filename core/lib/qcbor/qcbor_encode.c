@@ -32,7 +32,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  =============================================================================*/
 
 
-#include "qcbor/qcbor_encode.h"
+#include "qcbor_encode.h"
 #include "ieee754.h"
 
 
