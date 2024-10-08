@@ -1,6 +1,6 @@
 /* ==========================================================================
  * Copyright (c) 2016-2018, The Linux Foundation.
- * Copyright (c) 2018-2023, Laurence Lundblade.
+ * Copyright (c) 2018-2024, Laurence Lundblade.
  * Copyright (c) 2021, Arm Limited.
  * All rights reserved.
  *
@@ -61,8 +61,8 @@ extern "C" {
  *   - QCBOR 1.0 is indicated by the absence of all the above
  */
 #define QCBOR_VERSION_MAJOR 1
-#define QCBOR_VERSION_MINOR 3
-#define QCBOR_VERSION_PATCH 0
+#define QCBOR_VERSION_MINOR 4
+#define QCBOR_VERSION_PATCH 1
 
 
 /**
@@ -237,7 +237,7 @@ extern "C" {
 
 
 /**
- * Error codes returned by QCBOR Encoder and Decoder.
+ * Error codes returned by QCBOR Encoder-Decoder.
  *
  * They are grouped to keep the code size of
  * QCBORDecode_IsNotWellFormedError() and
@@ -392,9 +392,9 @@ typedef enum {
     *  decoding possible.*/
    QCBOR_ERR_NO_STRING_ALLOCATOR = 45,
 
-   /** Error allocating space for a string, usually for an
-    *  indefinite-length string. This error makes no further decoding
-    *  possible. */
+   /** Error allocating memory for a string, usually out of memory.
+    * This primarily occurs decoding indefinite-length strings. This
+    * error makes no further decoding possible. */
    QCBOR_ERR_STRING_ALLOCATE = 46,
 
    /** During decoding, the type of the label for a map entry is not
@@ -521,7 +521,20 @@ typedef enum {
     * whole tag contents when it is not the correct tag content, this
     * error can be returned. None of the built-in tag decoders do this
     * (to save object code). */
-   QCBOR_ERR_RECOVERABLE_BAD_TAG_CONTENT = 78
+   QCBOR_ERR_RECOVERABLE_BAD_TAG_CONTENT = 78,
+
+   /** QCBORDecode_EnterBstrWrapped() cannot be used on
+    * indefinite-length strings because they exist in memory pool for
+    * a @ref QCBORStringAllocate. */
+   QCBOR_ERR_CANNOT_ENTER_ALLOCATED_STRING = 79,
+
+   /** A range of error codes that can be made use of by the
+    * caller. QCBOR internally does nothing with these except notice
+    * that they are not QCBOR_SUCCESS. See QCBORDecode_SetError(). */
+   QCBOR_ERR_FIRST_USER_DEFINED = 128,
+
+   /** See \ref QCBOR_ERR_FIRST_USER_DEFINED */
+   QCBOR_ERR_LAST_USER_DEFINED = 255
 
    /* This is stored in uint8_t; never add values > 255 */
 } QCBORError;
@@ -530,12 +543,17 @@ typedef enum {
 /**
  * @brief Get string describing an error code.
  *
- * @param[in] err   The error code.
+ * @param[in] uErr   The error code.
  *
  * @return  NULL-terminated string describing error or "Unidentified
  *          error" if the error is not known.
+ *
+ * This is not thread-safe because it uses a static buffer
+ * for formatting, but this is only a diagnostic and the only
+ * consequence is the wrong description.
  */
-const char *qcbor_err_to_str(QCBORError err);
+const char *
+qcbor_err_to_str(QCBORError uErr);
 
 
 
