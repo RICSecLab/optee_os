@@ -15,16 +15,12 @@
  * Include before QCBOR_DISABLE_PREFERRED_FLOAT is checked as
  * QCBOR_DISABLE_PREFERRED_FLOAT might be defined in qcbor/qcbor_common.h
  */
-#include "qcbor_common.h"
+#include "qcbor/qcbor_common.h"
 
 #ifndef QCBOR_DISABLE_PREFERRED_FLOAT
 
 #include "ieee754.h"
 #include <string.h> /* For memcpy() */
-
-#ifndef USEFULBUF_DISABLE_ALL_FLOAT
-#define USEFULBUF_DISABLE_ALL_FLOAT
-#endif
 
 
 /*
@@ -152,7 +148,6 @@
  * here to avoid a dependency on UsefulBuf.h. There is no object code
  * size impact because these always optimze down to a simple assignment.
  */
-#ifndef USEFULBUF_DISABLE_ALL_FLOAT
 static inline uint32_t
 CopyFloatToUint32(float f)
 {
@@ -160,9 +155,7 @@ CopyFloatToUint32(float f)
    memcpy(&u32, &f, sizeof(uint32_t));
    return u32;
 }
-#endif /* USEFULBUF_DISABLE_ALL_FLOAT */
 
-#ifndef USEFULBUF_DISABLE_ALL_FLOAT
 static inline uint64_t
 CopyDoubleToUint64(double d)
 {
@@ -170,9 +163,7 @@ CopyDoubleToUint64(double d)
    memcpy(&u64, &d, sizeof(uint64_t));
    return u64;
 }
-#endif /* USEFULBUF_DISABLE_ALL_FLOAT */
 
-#ifndef USEFULBUF_DISABLE_ALL_FLOAT
 static inline double
 CopyUint64ToDouble(uint64_t u64)
 {
@@ -180,9 +171,7 @@ CopyUint64ToDouble(uint64_t u64)
    memcpy(&d, &u64, sizeof(uint64_t));
    return d;
 }
-#endif /* USEFULBUF_DISABLE_ALL_FLOAT */
 
-#ifndef USEFULBUF_DISABLE_ALL_FLOAT
 static inline float
 CopyUint32ToSingle(uint32_t u32)
 {
@@ -190,7 +179,7 @@ CopyUint32ToSingle(uint32_t u32)
    memcpy(&f, &u32, sizeof(uint32_t));
    return f;
 }
-#endif /* USEFULBUF_DISABLE_ALL_FLOAT */
+
 
 
 
@@ -204,7 +193,6 @@ CopyUint32ToSingle(uint32_t u32)
  * This returns the bits for a single-precision float, a binary64
  * as specified in IEEE754.
  */
-#ifndef USEFULBUF_DISABLE_ALL_FLOAT
 static double
 IEEE754_AssembleDouble(uint64_t uDoubleSign,
                        uint64_t uDoubleSignificand,
@@ -218,10 +206,8 @@ IEEE754_AssembleDouble(uint64_t uDoubleSign,
                              (uDoubleBiasedExponent << DOUBLE_EXPONENT_SHIFT) |
                              (uDoubleSign << DOUBLE_SIGN_SHIFT));
 }
-#endif /* USEFULBUF_DISABLE_ALL_FLOAT */
 
 
-#ifndef USEFULBUF_DISABLE_ALL_FLOAT
 double
 IEEE754_HalfToDouble(uint16_t uHalfPrecision)
 {
@@ -299,7 +285,6 @@ IEEE754_HalfToDouble(uint16_t uHalfPrecision)
 
    return dResult;
 }
-#endif /* USEFULBUF_DISABLE_ALL_FLOAT */
 
 
 /**
@@ -313,7 +298,6 @@ IEEE754_HalfToDouble(uint16_t uHalfPrecision)
  * specified in IEEE754. It is returned as a uint64_t rather than a
  * uint32_t or a float for convenience of usage.
  */
-
 static uint32_t
 IEEE754_AssembleHalf(uint32_t uHalfSign,
                      uint32_t uHalfSignificand,
@@ -330,7 +314,6 @@ IEEE754_AssembleHalf(uint32_t uHalfSign,
 
 
 /*  Public function; see ieee754.h */
-#ifndef USEFULBUF_DISABLE_ALL_FLOAT
 IEEE754_union
 IEEE754_SingleToHalf(float f)
 {
@@ -471,7 +454,6 @@ IEEE754_SingleToHalf(float f)
 
    return result;
 }
-#endif USEFULBUF_DISABLE_ALL_FLOAT
 
 
 /**
@@ -512,7 +494,6 @@ IEEE754_AssembleSingle(uint64_t uSingleSign,
  *
  * This handles all subnormals and NaN payloads.
  */
-#ifndef USEFULBUF_DISABLE_ALL_FLOAT
 static IEEE754_union
 IEEE754_DoubleToSingle(double d)
 {
@@ -634,11 +615,9 @@ IEEE754_DoubleToSingle(double d)
 
     return Result;
 }
-#endif /* USEFULBUF_DISABLE_ALL_FLOAT */
 
 
 /* Public function; see ieee754.h */
-#ifndef USEFULBUF_DISABLE_ALL_FLOAT
 IEEE754_union
 IEEE754_DoubleToSmaller(double d, int bAllowHalfPrecision)
 {
@@ -655,7 +634,6 @@ IEEE754_DoubleToSmaller(double d, int bAllowHalfPrecision)
 
    return result;
 }
-#endif /* USEFULBUF_DISABLE_ALL_FLOAT */
 
 
 #else /* QCBOR_DISABLE_PREFERRED_FLOAT */
