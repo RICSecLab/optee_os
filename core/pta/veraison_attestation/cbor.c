@@ -10,6 +10,8 @@
 #include "cbor.h"
 #include "sign.h"
 
+typedef void (*EncodeFunction)(QCBOREncodeContext *context, ...);
+
 void encode_cbor_evidence(
 	QCBOREncodeContext *context, UsefulBufC ubc_eat_profile,
 	const int psa_client_id, const int psa_security_lifecycle,
@@ -203,8 +205,6 @@ void encode_tbs_structure(QCBOREncodeContext *context,
 	QCBOREncode_AddBytes(context, payload);
 	QCBOREncode_CloseArray(context);
 }
-
-typedef void (*EncodeFunction)(QCBOREncodeContext *context, ...);
 
 /* Generic function for encoding and buffer allocation */
 UsefulBufC build_encoded_buffer(EncodeFunction encode_func, ...)
