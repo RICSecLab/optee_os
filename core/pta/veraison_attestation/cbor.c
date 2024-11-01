@@ -5,12 +5,31 @@
 
 #include <kernel/pseudo_ta.h>
 #include <mempool.h>
-#include <stdarg.h>
 
 #include "cbor.h"
 #include "sign.h"
 
-typedef void (*EncodeFunction)(QCBOREncodeContext *context, ...);
+typedef struct {
+	UsefulBufC ubc_eat_profile;
+	int psa_client_id;
+	int psa_security_lifecycle;
+	UsefulBufC ubc_psa_implementation_id;
+	UsefulBufC ubc_measurement_type;
+	UsefulBufC ubc_signer_id;
+	UsefulBufC ubc_psa_instance_id;
+	UsefulBufC ubc_psa_nonce;
+	UsefulBufC ubc_measurement_value;
+} cbor_evidence_args;
+
+typedef struct {
+	UsefulBufC ubc_cbor_evidence;
+} cose_evidence_args;
+
+typedef struct {
+	UsefulBufC protected_header;
+	UsefulBufC aad;
+	UsefulBufC payload;
+} tbs_structure_args;
 
 void encode_cbor_evidence(
 	QCBOREncodeContext *context, UsefulBufC ubc_eat_profile,
@@ -25,7 +44,14 @@ void encode_tbs_structure(QCBOREncodeContext *context,
 			  UsefulBufC protected_header, UsefulBufC aad,
 			  UsefulBufC payload);
 
-UsefulBufC build_encoded_buffer(EncodeFunction encode_func, ...);
+void encode_cbor_evidence_wrapper(QCBOREncodeContext *context, void *args);
+void encode_cose_evidence_wrapper(QCBOREncodeContext *context, void *args);
+void encode_protected_header_wrapper(QCBOREncodeContext *context, void *args);
+void encode_tbs_structure_wrapper(QCBOREncodeContext *context, void *args);
+
+UsefulBufC build_encoded_buffer(void (*encode_func)(QCBOREncodeContext *,
+						    void *),
+				void *encode_args);
 UsefulBufC build_cbor_evidence(UsefulBufC ubc_eat_profile, int psa_client_id,
 			       int psa_security_lifecycle,
 			       UsefulBufC ubc_psa_implementation_id,
@@ -206,20 +232,52 @@ void encode_tbs_structure(QCBOREncodeContext *context,
 	QCBOREncode_CloseArray(context);
 }
 
+void encode_cbor_evidence_wrapper(QCBOREncodeContext *context, void *args)
+{
+	cbor_evidence_args *evidence_args = (cbor_evidence_args *)args;
+	encode_cbor_evidence(context, evidence_args->ubc_eat_profile,
+			     evidence_args->psa_client_id,
+			     evidence_args->psa_security_lifecycle,
+			     evidence_args->ubc_psa_implementation_id,
+			     evidence_args->ubc_measurement_type,
+			     evidence_args->ubc_signer_id,
+			     evidence_args->ubc_psa_instance_id,
+			     evidence_args->ubc_psa_nonce,
+			     evidence_args->ubc_measurement_value);
+}
+
+void encode_cose_evidence_wrapper(QCBOREncodeContext *context, void *args)
+{
+	cose_evidence_args *cose_args = (cose_evidence_args *)args;
+	encode_cose_evidence(context, cose_args->ubc_cbor_evidence);
+}
+
+void encode_protected_header_wrapper(QCBOREncodeContext *context, void *args)
+{
+	(void)args; /* unused */
+	encode_protected_header(context);
+}
+
+void encode_tbs_structure_wrapper(QCBOREncodeContext *context, void *args)
+{
+	tbs_structure_args *tbs_args = (tbs_structure_args *)args;
+	encode_tbs_structure(context, tbs_args->protected_header, tbs_args->aad,
+			     tbs_args->payload);
+}
+
 /* Generic function for encoding and buffer allocation */
-UsefulBufC build_encoded_buffer(EncodeFunction encode_func, ...)
+UsefulBufC build_encoded_buffer(void (*encode_func)(QCBOREncodeContext *,
+						    void *),
+				void *encode_args)
 {
 	QCBOREncodeContext context = {};
 	uint8_t *buffer = NULL;
 	size_t required_size = 0;
 	UsefulBufC encoded_data = { NULL, 0 };
-	va_list args;
 
 	/* First encode: calculate the required length */
 	QCBOREncode_Init(&context, (UsefulBuf){ NULL, INT32_MAX });
-	va_start(args, encode_func);
-	encode_func(&context, args);
-	va_end(args);
+	encode_func(&context, encode_args);
 	if (QCBOREncode_FinishGetSize(&context, &required_size) !=
 	    QCBOR_SUCCESS) {
 		return NULLUsefulBufC;
@@ -234,9 +292,7 @@ UsefulBufC build_encoded_buffer(EncodeFunction encode_func, ...)
 
 	/* Second encode: encode data */
 	QCBOREncode_Init(&context, (UsefulBuf){ buffer, required_size });
-	va_start(args, encode_func);
-	encode_func(&context, args);
-	va_end(args);
+	encode_func(&context, encode_args);
 	if (QCBOREncode_Finish(&context, &encoded_data) != QCBOR_SUCCESS) {
 		mempool_free(mempool_default, buffer);
 		return NULLUsefulBufC;
@@ -252,7 +308,6 @@ UsefulBufC build_encoded_buffer(EncodeFunction encode_func, ...)
 	return encoded_data;
 }
 
-/* Wrapper functions for specific encoding needs */
 UsefulBufC build_cbor_evidence(UsefulBufC ubc_eat_profile, int psa_client_id,
 			       int psa_security_lifecycle,
 			       UsefulBufC ubc_psa_implementation_id,
@@ -262,27 +317,30 @@ UsefulBufC build_cbor_evidence(UsefulBufC ubc_eat_profile, int psa_client_id,
 			       UsefulBufC ubc_psa_nonce,
 			       UsefulBufC ubc_measurement_value)
 {
-	return build_encoded_buffer(
-		(EncodeFunction)encode_cbor_evidence, ubc_eat_profile,
-		psa_client_id, psa_security_lifecycle,
-		ubc_psa_implementation_id, ubc_measurement_type, ubc_signer_id,
-		ubc_psa_instance_id, ubc_psa_nonce, ubc_measurement_value);
+	cbor_evidence_args args = {
+		ubc_eat_profile,	psa_client_id,
+		psa_security_lifecycle, ubc_psa_implementation_id,
+		ubc_measurement_type,	ubc_signer_id,
+		ubc_psa_instance_id,	ubc_psa_nonce,
+		ubc_measurement_value
+	};
+	return build_encoded_buffer(encode_cbor_evidence_wrapper, &args);
 }
 
 UsefulBufC build_cose_evidence(UsefulBufC ubc_cbor_evidence)
 {
-	return build_encoded_buffer((EncodeFunction)encode_cose_evidence,
-				    ubc_cbor_evidence);
+	cose_evidence_args args = { ubc_cbor_evidence };
+	return build_encoded_buffer(encode_cose_evidence_wrapper, &args);
 }
 
 UsefulBufC build_protected_header(void)
 {
-	return build_encoded_buffer((EncodeFunction)encode_protected_header);
+	return build_encoded_buffer(encode_protected_header_wrapper, NULL);
 }
 
 UsefulBufC build_tbs_structure(UsefulBufC protected_header, UsefulBufC aad,
 			       UsefulBufC payload)
 {
-	return build_encoded_buffer((EncodeFunction)encode_tbs_structure,
-				    protected_header, aad, payload);
+	tbs_structure_args args = { protected_header, aad, payload };
+	return build_encoded_buffer(encode_tbs_structure_wrapper, &args);
 }
