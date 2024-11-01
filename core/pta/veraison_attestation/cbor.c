@@ -18,6 +18,10 @@ void encode_cbor_evidence(
 	UsefulBufC ubc_psa_nonce, UsefulBufC ubc_measurement_value);
 void encode_cose_evidence(QCBOREncodeContext *context,
 			  UsefulBufC ubc_cbor_evidence);
+void encode_protected_header(QCBOREncodeContext *context);
+void encode_tbs_structure(QCBOREncodeContext *context,
+			  UsefulBufC protected_header, UsefulBufC aad,
+			  UsefulBufC payload);
 
 UsefulBufC build_cbor_evidence(UsefulBufC ubc_eat_profile, int psa_client_id,
 			       int psa_security_lifecycle,
