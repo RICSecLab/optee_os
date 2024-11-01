@@ -10,6 +10,15 @@
 #include "cbor.h"
 #include "sign.h"
 
+void encode_cbor_evidence(
+	QCBOREncodeContext *context, UsefulBufC ubc_eat_profile,
+	const int psa_client_id, const int psa_security_lifecycle,
+	UsefulBufC ubc_psa_implementation_id, UsefulBufC ubc_measurement_type,
+	UsefulBufC ubc_signer_id, UsefulBufC ubc_psa_instance_id,
+	UsefulBufC ubc_psa_nonce, UsefulBufC ubc_measurement_value);
+void encode_cose_evidence(QCBOREncodeContext *context,
+			  UsefulBufC ubc_cbor_evidence);
+
 UsefulBufC build_cbor_evidence(UsefulBufC ubc_eat_profile, int psa_client_id,
 			       int psa_security_lifecycle,
 			       UsefulBufC ubc_psa_implementation_id,
@@ -18,15 +27,6 @@ UsefulBufC build_cbor_evidence(UsefulBufC ubc_eat_profile, int psa_client_id,
 			       UsefulBufC ubc_psa_instance_id,
 			       UsefulBufC ubc_psa_nonce,
 			       UsefulBufC ubc_measurement_value);
-UsefulBufC build_cose_evidence(UsefulBufC ubc_cbor_evidence);
-// void encode_cbor_evidence(
-// 	QCBOREncodeContext *context, UsefulBufC ubc_eat_profile,
-// 	const int psa_client_id, const int psa_security_lifecycle,
-// 	UsefulBufC ubc_psa_implementation_id, UsefulBufC ubc_measurement_type,
-// 	UsefulBufC ubc_signer_id, UsefulBufC ubc_psa_instance_id,
-// 	UsefulBufC ubc_psa_nonce, UsefulBufC ubc_measurement_value);
-// void encode_cose_evidence(QCBOREncodeContext *context, UsefulBufC payload);
-
 UsefulBufC build_cose_evidence(UsefulBufC ubc_cbor_evidence);
 UsefulBufC build_protected_header(void);
 UsefulBufC build_tbs_structure(UsefulBufC protected_header, UsefulBufC aad,
@@ -145,7 +145,7 @@ void encode_cose_evidence(QCBOREncodeContext *context,
 					  ubc_cbor_evidence);
 	if (UsefulBuf_IsNULLC(tbs_payload)) {
 		DMSG("Failed to encode to-be-signed payload");
-		mempool_free(mempool_default, protected_header.ptr);
+		mempool_free(mempool_default, (void *)protected_header.ptr);
 		return;
 	}
 
@@ -153,8 +153,8 @@ void encode_cose_evidence(QCBOREncodeContext *context,
 	if (sign_ecdsa_sha256(tbs_payload.ptr, tbs_payload.len, signature,
 			      &signature_len) != TEE_SUCCESS) {
 		DMSG("Failed to sign payload");
-		mempool_free(mempool_default, protected_header.ptr);
-		mempool_free(mempool_default, tbs_payload.ptr);
+		mempool_free(mempool_default, (void *)protected_header.ptr);
+		mempool_free(mempool_default, (void *)tbs_payload.ptr);
 		return;
 	}
 
