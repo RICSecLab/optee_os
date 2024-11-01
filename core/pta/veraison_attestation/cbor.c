@@ -28,7 +28,7 @@ UsefulBufC build_cose_evidence(UsefulBufC ubc_cbor_evidence);
 // void encode_cose_evidence(QCBOREncodeContext *context, UsefulBufC payload);
 
 UsefulBufC build_cose_evidence(UsefulBufC ubc_cbor_evidence);
-UsefulBufC build_protected_header();
+UsefulBufC build_protected_header(void);
 UsefulBufC build_tbs_structure(UsefulBufC protected_header, UsefulBufC aad,
 			       UsefulBufC payload);
 
@@ -127,7 +127,7 @@ void encode_cose_evidence(QCBOREncodeContext *context,
 	protected_header = build_protected_header();
 	if (UsefulBuf_IsNULLC(protected_header)) {
 		DMSG("Failed to encode protected header payload");
-		return NULLUsefulBufC;
+		return;
 	}
 
 	/* Add protected header */
@@ -146,7 +146,7 @@ void encode_cose_evidence(QCBOREncodeContext *context,
 	if (UsefulBuf_IsNULLC(tbs_payload)) {
 		DMSG("Failed to encode to-be-signed payload");
 		mempool_free(mempool_default, protected_header.ptr);
-		return NULLUsefulBufC;
+		return;
 	}
 
 	/* Calculate a signature and add the signature to payload */
@@ -155,7 +155,7 @@ void encode_cose_evidence(QCBOREncodeContext *context,
 		DMSG("Failed to sign payload");
 		mempool_free(mempool_default, protected_header.ptr);
 		mempool_free(mempool_default, tbs_payload.ptr);
-		return NULLUsefulBufC;
+		return;
 	}
 
 	/* Add the signature */
@@ -270,7 +270,7 @@ UsefulBufC build_cose_evidence(UsefulBufC ubc_cbor_evidence)
 				    ubc_cbor_evidence);
 }
 
-UsefulBufC build_protected_header()
+UsefulBufC build_protected_header(void)
 {
 	return build_encoded_buffer((EncodeFunction)encode_protected_header);
 }
