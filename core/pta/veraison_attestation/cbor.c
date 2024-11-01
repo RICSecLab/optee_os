@@ -23,6 +23,7 @@ void encode_tbs_structure(QCBOREncodeContext *context,
 			  UsefulBufC protected_header, UsefulBufC aad,
 			  UsefulBufC payload);
 
+UsefulBufC build_encoded_buffer(EncodeFunction encode_func, ...);
 UsefulBufC build_cbor_evidence(UsefulBufC ubc_eat_profile, int psa_client_id,
 			       int psa_security_lifecycle,
 			       UsefulBufC ubc_psa_implementation_id,
@@ -261,11 +262,11 @@ UsefulBufC build_cbor_evidence(UsefulBufC ubc_eat_profile, int psa_client_id,
 			       UsefulBufC ubc_psa_nonce,
 			       UsefulBufC ubc_measurement_value)
 {
-	return build_encoded_buffer((EncodeFunction)encode_cbor_evidence,
-				    ubc_eat_profile, ubc_psa_implementation_id,
-				    ubc_measurement_type, ubc_signer_id,
-				    ubc_psa_instance_id, ubc_psa_nonce,
-				    ubc_measurement_value);
+	return build_encoded_buffer(
+		(EncodeFunction)encode_cbor_evidence, ubc_eat_profile,
+		psa_client_id, psa_security_lifecycle,
+		ubc_psa_implementation_id, ubc_measurement_type, ubc_signer_id,
+		ubc_psa_instance_id, ubc_psa_nonce, ubc_measurement_value);
 }
 
 UsefulBufC build_cose_evidence(UsefulBufC ubc_cbor_evidence)
