@@ -53,7 +53,7 @@ static struct ecc_public_key *pubkey;
 	0x93, 0x8d, 0xdb, 0x55, 0xd8, 0xf7, 0x78, 0x01
 /* clang-format on */
 #else
-#error "This is experimental code, requires CFG_VERAISON_ATTESTATION_PTA_TEST_KEY=y
+#error "This is experimental code, requires CFG_VERAISON_ATTESTATION_PTA_TEST_KEY=y"
 #endif
 
 static TEE_Result hash_sha256(const uint8_t *msg, size_t msg_len,

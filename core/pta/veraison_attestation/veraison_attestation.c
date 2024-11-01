@@ -123,9 +123,9 @@ static TEE_Result cmd_get_cbor_evidence(uint32_t param_types,
 
 /* Free mempool allocation before returning to the caller */
 free_ubc_cose_evidence:
-	mempool_free(mempool_default, ubc_cose_evidence.ptr);
+	mempool_free(mempool_default, (void *)ubc_cose_evidence.ptr);
 free_ubc_cbor_evidence:
-	mempool_free(mempool_default, ubc_cbor_evidence.ptr);
+	mempool_free(mempool_default, (void *)ubc_cbor_evidence.ptr);
 
 	return TEE_SUCCESS;
 }
