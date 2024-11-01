@@ -10,14 +10,15 @@
 #include "cbor.h"
 #include "sign.h"
 
-UsefulBufC
-build_cbor_evidence(UsefulBufC ubc_eat_profile, int psa_client_id,
-		    int psa_security_lifecycle,
-		    UsefulBufC ubc_psa_implementation_id,
-		    UsefulBufC ubc_measurement_type, UsefulBufC ubc_signer_id,
-		    UsefulBufC ubc_psa_instance_id, UsefulBufC ubc_psa_nonce,
-		    UsefulBufC ubc_measurement_value)
-	: UsefulBufC build_cose_evidence(UsefulBufC ubc_cbor_evidence);
+UsefulBufC build_cbor_evidence(UsefulBufC ubc_eat_profile, int psa_client_id,
+			       int psa_security_lifecycle,
+			       UsefulBufC ubc_psa_implementation_id,
+			       UsefulBufC ubc_measurement_type,
+			       UsefulBufC ubc_signer_id,
+			       UsefulBufC ubc_psa_instance_id,
+			       UsefulBufC ubc_psa_nonce,
+			       UsefulBufC ubc_measurement_value);
+UsefulBufC build_cose_evidence(UsefulBufC ubc_cbor_evidence);
 
 UsefulBufC generate_cbor_evidence(
 	const char *eat_profile, int psa_client_id, int psa_security_lifecycle,
