@@ -34,18 +34,15 @@
 #define COSE_ALGORITHM_ES256 -7
 #define COSE_SIG_CONTEXT_STRING_SIGNATURE1 "Signature1"
 
-UsefulBufC
-encode_evidence_to_cbor(const char *eat_profile, const int psa_client_id,
-			const int psa_security_lifecycle,
-			const uint8_t *psa_implementation_id,
-			size_t psa_implementation_id_len,
-			const char *measurement_type, const uint8_t *signer_id,
-			size_t signer_id_len, const uint8_t *psa_instance_id,
-			size_t psa_instance_id_len, const uint8_t *psa_nonce,
-			size_t psa_nonce_len, const uint8_t *measurement_value,
-			size_t mv_len, UsefulBuf cbor_evidence_buffer);
+UsefulBufC generate_cbor_evidence(
+	const char *eat_profile, int psa_client_id, int psa_security_lifecycle,
+	const uint8_t *psa_implementation_id, size_t psa_implementation_id_len,
+	const char *measurement_type, const uint8_t *signer_id,
+	size_t signer_id_len, const uint8_t *psa_instance_id,
+	size_t psa_instance_id_len, const uint8_t *psa_nonce,
+	size_t psa_nonce_len, const uint8_t *measurement_value,
+	size_t measurement_value_len);
 
-UsefulBufC generate_cose(UsefulBufC ubc_cbor_evidence,
-			 UsefulBuf buffer_for_cose);
+UsefulBufC generate_cose_evidence(UsefulBufC ubc_cbor_evidence);
 
 #endif /* PTA_VERAISON_ATTESTATION_CBOR_H */

@@ -63,11 +63,7 @@ static TEE_Result cmd_get_cbor_evidence(uint32_t param_types,
 	char b64_measurement_value[TEE_SHA256_HASH_SIZE * 2] = { 0 };
 
 	UsefulBufC ubc_cbor_evidence = { NULL, 0 };
-	UsefulBuf_MAKE_STACK_UB(buffuer_for_cbor, 512);
-
-	UsefulBufC cose_evidence = { NULL, 0 };
-	int8_t *buffer_for_cose_array = NULL;
-	UsefulBuf buffer_for_cose = { };
+	UsefulBufC ubc_cose_evidence = { NULL, 0 };
 
 	if (param_types != TEE_PARAM_TYPES(TEE_PARAM_TYPE_MEMREF_INPUT,
 					   TEE_PARAM_TYPE_MEMREF_OUTPUT,
@@ -97,45 +93,39 @@ static TEE_Result cmd_get_cbor_evidence(uint32_t param_types,
 	DMSG("b64_measurement_value: %s", b64_measurement_value);
 
 	/* Encode evidence to CBOR */
-	ubc_cbor_evidence = encode_evidence_to_cbor(
+	ubc_cbor_evidence = generate_cbor_evidence(
 		eat_profile, psa_client_id, psa_security_lifecycle,
 		psa_implementation_id, psa_implementation_id_len,
 		measurement_type, signer_id, SIGNER_ID_LEN, psa_instance_id,
 		INSTANCE_ID_LEN, nonce, nonce_sz, measurement_value,
-		TEE_SHA256_HASH_SIZE, buffuer_for_cbor);
+		TEE_SHA256_HASH_SIZE);
 	if (UsefulBuf_IsNULLC(ubc_cbor_evidence)) {
 		DMSG("Failed to encode evidence to CBOR");
 		return TEE_ERROR_GENERIC;
 	}
 
-	/* Allocate buffer for COSE evidence */
-	buffer_for_cose_array = mempool_alloc(mempool_default, *output_buffer_len);
-	if (!buffer_for_cose_array)
-		return TEE_ERROR_OUT_OF_MEMORY;
-	buffer_for_cose = (UsefulBuf){
-		.ptr = buffer_for_cose_array,
-		.len = *output_buffer_len,
-	};
-
 	/* Sign the CBOR and generate a COSE evidence */
-	cose_evidence = generate_cose(ubc_cbor_evidence, buffer_for_cose);
-	if (UsefulBuf_IsNULLC(cose_evidence)) {
+	ubc_cose_evidence = generate_cose_evidence(ubc_cbor_evidence);
+	if (UsefulBuf_IsNULLC(ubc_cose_evidence)) {
 		DMSG("Failed to encode CBOR to COSE");
-		mempool_free(mempool_default, buffer_for_cose_array);
-		return TEE_ERROR_GENERIC;
+		status = TEE_ERROR_GENERIC;
+		goto free_ubc_cbor_evidence;
 	}
 
 	/* Copy COSE evidence for return buffer */
-	if (cose_evidence.len > *output_buffer_len) {
-		*output_buffer_len = cose_evidence.len;
-		mempool_free(mempool_default, buffer_for_cose_array);
-		return TEE_ERROR_SHORT_BUFFER;
+	if (ubc_cose_evidence.len > *output_buffer_len) {
+		*output_buffer_len = ubc_cose_evidence.len;
+		status = TEE_ERROR_SHORT_BUFFER;
+		goto free_ubc_cose_evidence;
 	}
-	memcpy(output_buffer, cose_evidence.ptr, cose_evidence.len);
-	*output_buffer_len = cose_evidence.len;
+	memcpy(output_buffer, ubc_cose_evidence.ptr, ubc_cose_evidence.len);
+	*output_buffer_len = ubc_cose_evidence.len;
 
-	/* Free mempool allocation before returning to the caller */
-	mempool_free(mempool_default, buffer_for_cose_array);
+/* Free mempool allocation before returning to the caller */
+free_ubc_cose_evidence:
+	mempool_free(mempool_default, ubc_cose_evidence.ptr);
+free_ubc_cbor_evidence:
+	mempool_free(mempool_default, ubc_cbor_evidence.ptr);
 
 	return TEE_SUCCESS;
 }
