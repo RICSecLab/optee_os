@@ -179,6 +179,14 @@ $(eval $(call cfg-depends-all,CFG_REE_FS_INTEGRITY_RPMB,CFG_RPMB_FS))
 # tee-supplicant process will open /dev/mmcblk<id>rpmb
 CFG_RPMB_FS_DEV_ID ?= 0
 
+# Exchange the RPMB frames with a device driver in the core instead of with
+# tee-supplicant. The driver registers itself with rpmb_dev_register() (see
+# core/include/tee/rpmb_dev.h) before the first RPMB access. This makes the
+# RPMB FS usable before user space exists, for instance for an early TA that
+# needs secure storage while the kernel is still initialising.
+CFG_RPMB_CORE_DRIVER ?= n
+$(eval $(call cfg-depends-all,CFG_RPMB_CORE_DRIVER,CFG_RPMB_FS))
+
 # This config variable determines the number of entries read in from RPMB at
 # once whenever a function traverses the RPMB FS. Increasing the default value
 # has the following consequences:
