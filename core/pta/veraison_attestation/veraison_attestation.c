@@ -7,10 +7,13 @@
 #include <config.h>
 #include <crypto/crypto.h>
 #include <kernel/pseudo_ta.h>
+#include <kernel/ts_manager.h>
+#include <kernel/user_ta.h>
 #include <mempool.h>
 #include <pta_veraison_attestation.h>
 #include <stdlib.h>
 #include <string.h>
+#include <tee/uuid.h>
 
 #ifdef CFG_NXP_CAAM
 #include <drivers/caam_extension.h>
@@ -28,7 +31,6 @@
 #define TEE_SHA256_HASH_SIZE 32
 
 #define EAT_PROFILE "http://arm.com/psa/2.0.0"
-#define CLIENT_ID 1
 #define LIFECYCLE 12288
 #define MEASURMENT_TYPE "PRoT"
 
@@ -73,6 +75,48 @@ static TEE_Result get_signing_key(uint32_t param_types,
 	return TEE_SUCCESS;
 }
 
+/*
+ * The PSA client-id names the caller the evidence is about. Derive it from
+ * the UUID of the calling TA: the low 31 bits of the SHA-256 of the UUID
+ * in its RFC 4122 octet form, which keeps it positive, the value range the
+ * PSA token reserves for callers in the secure world.
+ */
+static TEE_Result get_client_id(int *client_id)
+{
+	uint8_t hash[TEE_SHA256_HASH_SIZE] = { };
+	uint8_t octets[sizeof(TEE_UUID)] = { };
+	struct ts_session *s = NULL;
+	TEE_Result res = TEE_SUCCESS;
+	void *ctx = NULL;
+	uint32_t v = 0;
+
+	s = ts_get_calling_session();
+	if (!s || !is_user_ta_ctx(s->ctx))
+		return TEE_ERROR_ACCESS_DENIED;
+	tee_uuid_to_octets(octets, &s->ctx->uuid);
+
+	res = crypto_hash_alloc_ctx(&ctx, TEE_ALG_SHA256);
+	if (res != TEE_SUCCESS)
+		return res;
+	res = crypto_hash_init(ctx);
+	if (res != TEE_SUCCESS)
+		goto out;
+	res = crypto_hash_update(ctx, octets, sizeof(octets));
+	if (res != TEE_SUCCESS)
+		goto out;
+	res = crypto_hash_final(ctx, hash, sizeof(hash));
+	if (res != TEE_SUCCESS)
+		goto out;
+
+	v = ((uint32_t)hash[28] << 24) | ((uint32_t)hash[29] << 16) |
+	    ((uint32_t)hash[30] << 8) | hash[31];
+	*client_id = v & 0x7fffffff;
+out:
+	crypto_hash_free_ctx(ctx);
+
+	return res;
+}
+
 static TEE_Result cmd_get_cbor_evidence(uint32_t param_types,
 					TEE_Param params[TEE_NUM_PARAMS])
 {
@@ -85,7 +129,7 @@ static TEE_Result cmd_get_cbor_evidence(uint32_t param_types,
 	TEE_Result status = TEE_SUCCESS;
 
 	const char eat_profile[] = EAT_PROFILE;
-	const int psa_client_id = CLIENT_ID;
+	int psa_client_id = 0;
 	int psa_security_lifecycle = LIFECYCLE;
 	const char measurement_type[] = MEASURMENT_TYPE;
 	uint8_t signer_id[SIGNER_ID_LEN] = SIGNER_ID;
@@ -114,6 +158,10 @@ static TEE_Result cmd_get_cbor_evidence(uint32_t param_types,
 
 	if (!output_buffer && *output_buffer_len)
 		return TEE_ERROR_BAD_PARAMETERS;
+
+	status = get_client_id(&psa_client_id);
+	if (status != TEE_SUCCESS)
+		return status;
 
 	status = get_signing_key(param_types, params, &skey);
 	if (status != TEE_SUCCESS)
