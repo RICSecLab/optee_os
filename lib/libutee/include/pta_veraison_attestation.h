@@ -20,6 +20,14 @@
  * [in]     memref[0]        Nonce
  * [out]    memref[1]        Output buffer
  * [in]     memref[2]        Implementation ID
+ * [in]     memref[3]        (optional) Signing key: public key X (32 bytes),
+ *                           public key Y (32 bytes), then the private key
+ *                           as a serialized CAAM key, that is a CAAM black
+ *                           key blob, never a plain scalar. Only accepted
+ *                           when CFG_NXP_CAAM=y. Without it the embedded
+ *                           test key (CFG_VERAISON_ATTESTATION_PTA_TEST_KEY)
+ *                           signs. The PSA instance-id is derived from the
+ *                           public key of the key in use.
  *
  * Main return codes:
  * TEE_SUCCESS
@@ -29,5 +37,38 @@
  * TEE_ERROR_NOT_IMPLEMENTED - Command not implemented
  */
 #define PTA_VERAISON_ATTESTATION_GET_CBOR_EVIDENCE 0x0
+
+/*
+ * Generate an ECDSA P-256 signing key inside the CAAM (CFG_NXP_CAAM only).
+ * The private key is returned as a serialized CAAM key, ready to be passed
+ * back in memref[3] of PTA_VERAISON_ATTESTATION_GET_CBOR_EVIDENCE. The
+ * plain private key never leaves the CAAM.
+ *
+ * [out]    memref[0]        Private key as a serialized CAAM key
+ * [out]    memref[1]        Public key X (32 bytes)
+ * [out]    memref[2]        Public key Y (32 bytes)
+ *
+ * Main return codes:
+ * TEE_SUCCESS
+ * TEE_ERROR_BAD_PARAMETERS  - Incorrect input param
+ * TEE_ERROR_SHORT_BUFFER    - A buffer is too small, its size is updated
+ * TEE_ERROR_NOT_IMPLEMENTED - Built without CFG_NXP_CAAM
+ */
+#define PTA_VERAISON_ATTESTATION_GENERATE_KEY 0x1
+
+/*
+ * Wrap a plain ECDSA P-256 private key into a serialized CAAM key
+ * (CFG_NXP_CAAM only), for a key generated elsewhere and provisioned once.
+ *
+ * [in]     memref[0]        Plain private key (32 bytes)
+ * [out]    memref[1]        Private key as a serialized CAAM key
+ *
+ * Main return codes:
+ * TEE_SUCCESS
+ * TEE_ERROR_BAD_PARAMETERS  - Incorrect input param
+ * TEE_ERROR_SHORT_BUFFER    - Output buffer too small, its size is updated
+ * TEE_ERROR_NOT_IMPLEMENTED - Built without CFG_NXP_CAAM
+ */
+#define PTA_VERAISON_ATTESTATION_WRAP_KEY 0x2
 
 #endif /* __PTA_VERAISON_ATTESTATION_H */
