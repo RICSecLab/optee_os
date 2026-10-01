@@ -20,6 +20,14 @@
  * [in]     memref[0]        Nonce
  * [out]    memref[1]        Output buffer
  * [in]     memref[2]        Implementation ID
+ * [in]     memref[3]        (optional) Signing key: public key X (32 bytes),
+ *                           public key Y (32 bytes), then the private key
+ *                           as a serialized CAAM key, that is a CAAM black
+ *                           key blob, never a plain scalar. Only accepted
+ *                           when CFG_NXP_CAAM=y. Without it the embedded
+ *                           test key (CFG_VERAISON_ATTESTATION_PTA_TEST_KEY)
+ *                           signs. The PSA instance-id is derived from the
+ *                           public key of the key in use.
  *
  * Main return codes:
  * TEE_SUCCESS

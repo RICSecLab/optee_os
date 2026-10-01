@@ -1355,10 +1355,14 @@ endif
 
 # When enabled, CFG_VERAISON_ATTESTATION_PTA_TEST_KEY embeds a test key.
 # Note: CFG_VERAISON_ATTESTATION_PTA_TEST_KEY must be enabled for
-# CFG_VERAISON_ATTESTATION_PTA to work.
+# CFG_VERAISON_ATTESTATION_PTA to work, unless the platform has a CAAM
+# (CFG_NXP_CAAM=y): there the caller can hand the PTA a CAAM black key
+# to sign with, and the test key can be left out.
 CFG_VERAISON_ATTESTATION_PTA_TEST_KEY ?= y
 ifneq ($(CFG_VERAISON_ATTESTATION_PTA_TEST_KEY),y)
+ifneq ($(CFG_NXP_CAAM),y)
 $(error "CFG_VERAISON_ATTESTATION_PTA_TEST_KEY must be enabled")
+endif
 endif
 
 # CFG_SEMIHOSTING_CONSOLE, when enabled, embeds a semihosting console driver.
