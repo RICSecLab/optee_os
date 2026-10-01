@@ -5,11 +5,16 @@
 
 #include <base64.h>
 #include <config.h>
+#include <crypto/crypto.h>
 #include <kernel/pseudo_ta.h>
 #include <mempool.h>
 #include <pta_veraison_attestation.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef CFG_NXP_CAAM
+#include <drivers/caam_extension.h>
+#endif
 
 #include "cbor.h"
 #include "hash.h"
@@ -178,6 +183,111 @@ free_ubc_cbor_evidence:
 	return status;
 }
 
+#ifdef CFG_NXP_CAAM
+/* Export a bignum as a fixed-size big-endian field, zero padded */
+static TEE_Result export_coord(struct bignum *bn, uint8_t *out, size_t size)
+{
+	size_t len = crypto_bignum_num_bytes(bn);
+
+	if (len > size)
+		return TEE_ERROR_GENERIC;
+
+	memset(out, 0, size);
+	crypto_bignum_bn2bin(bn, out + size - len);
+
+	return TEE_SUCCESS;
+}
+
+static TEE_Result cmd_generate_key(uint32_t param_types,
+				   TEE_Param params[TEE_NUM_PARAMS])
+{
+	struct ecc_keypair key = { };
+	TEE_Result res = TEE_SUCCESS;
+	size_t priv_len = 0;
+
+	if (param_types != TEE_PARAM_TYPES(TEE_PARAM_TYPE_MEMREF_OUTPUT,
+					   TEE_PARAM_TYPE_MEMREF_OUTPUT,
+					   TEE_PARAM_TYPE_MEMREF_OUTPUT,
+					   TEE_PARAM_TYPE_NONE))
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	res = crypto_acipher_alloc_ecc_keypair(&key, TEE_TYPE_ECDSA_KEYPAIR,
+					       SIGNING_KEY_COORD_SIZE * 8);
+	if (res != TEE_SUCCESS)
+		return res;
+	key.curve = TEE_ECC_CURVE_NIST_P256;
+
+	/*
+	 * With the CAAM crypto driver the private key is generated as a
+	 * black key and key.d holds its serialized form (a blob), so the
+	 * plain key is never available here.
+	 */
+	res = crypto_acipher_gen_ecc_key(&key, SIGNING_KEY_COORD_SIZE * 8);
+	if (res != TEE_SUCCESS)
+		goto out;
+
+	priv_len = crypto_bignum_num_bytes(key.d);
+	if (params[0].memref.size < priv_len ||
+	    params[1].memref.size < SIGNING_KEY_COORD_SIZE ||
+	    params[2].memref.size < SIGNING_KEY_COORD_SIZE) {
+		params[0].memref.size = priv_len;
+		params[1].memref.size = SIGNING_KEY_COORD_SIZE;
+		params[2].memref.size = SIGNING_KEY_COORD_SIZE;
+		res = TEE_ERROR_SHORT_BUFFER;
+		goto out;
+	}
+	if (!params[0].memref.buffer || !params[1].memref.buffer ||
+	    !params[2].memref.buffer) {
+		res = TEE_ERROR_BAD_PARAMETERS;
+		goto out;
+	}
+
+	crypto_bignum_bn2bin(key.d, params[0].memref.buffer);
+	params[0].memref.size = priv_len;
+	res = export_coord(key.x, params[1].memref.buffer,
+			   SIGNING_KEY_COORD_SIZE);
+	if (res != TEE_SUCCESS)
+		goto out;
+	params[1].memref.size = SIGNING_KEY_COORD_SIZE;
+	res = export_coord(key.y, params[2].memref.buffer,
+			   SIGNING_KEY_COORD_SIZE);
+	if (res != TEE_SUCCESS)
+		goto out;
+	params[2].memref.size = SIGNING_KEY_COORD_SIZE;
+
+out:
+	crypto_bignum_free(&key.d);
+	crypto_bignum_free(&key.x);
+	crypto_bignum_free(&key.y);
+
+	return res;
+}
+
+static TEE_Result cmd_wrap_key(uint32_t param_types,
+			       TEE_Param params[TEE_NUM_PARAMS])
+{
+	size_t out_size = params[1].memref.size;
+	TEE_Result res = TEE_SUCCESS;
+
+	if (param_types != TEE_PARAM_TYPES(TEE_PARAM_TYPE_MEMREF_INPUT,
+					   TEE_PARAM_TYPE_MEMREF_OUTPUT,
+					   TEE_PARAM_TYPE_NONE,
+					   TEE_PARAM_TYPE_NONE))
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	if (!params[0].memref.buffer ||
+	    params[0].memref.size != SIGNING_KEY_COORD_SIZE)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	res = caam_key_wrap_black(params[0].memref.buffer,
+				  params[0].memref.size,
+				  params[1].memref.buffer, &out_size);
+	params[1].memref.size = out_size;
+
+	return res;
+}
+#endif /* CFG_NXP_CAAM */
+
 static TEE_Result invoke_command(void *sess_ctx __unused, uint32_t cmd_id,
 				 uint32_t param_types,
 				 TEE_Param params[TEE_NUM_PARAMS])
@@ -185,6 +295,12 @@ static TEE_Result invoke_command(void *sess_ctx __unused, uint32_t cmd_id,
 	switch (cmd_id) {
 	case PTA_VERAISON_ATTESTATION_GET_CBOR_EVIDENCE:
 		return cmd_get_cbor_evidence(param_types, params);
+#ifdef CFG_NXP_CAAM
+	case PTA_VERAISON_ATTESTATION_GENERATE_KEY:
+		return cmd_generate_key(param_types, params);
+	case PTA_VERAISON_ATTESTATION_WRAP_KEY:
+		return cmd_wrap_key(param_types, params);
+#endif
 	default:
 		break;
 	}
