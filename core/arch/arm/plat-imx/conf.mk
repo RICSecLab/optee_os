@@ -480,6 +480,10 @@ CFG_UART_BASE ?= UART2_BASE
 $(call force,CFG_CORE_LARGE_PHYS_ADDR,y)
 $(call force,CFG_CORE_ARM64_PA_BITS,36)
 $(call force,CFG_LPAE_ADDR_SPACE_BITS,36)
+# uSDHC3, the controller of the on-board eMMC, for CFG_IMX_USDHC
+CFG_IMX_USDHC_BASE ?= 0x30b60000
+CFG_IMX_USDHC_CCM_CCGR ?= 94
+CFG_IMX_USDHC_CCM_TARGET ?= 0xbc80
 endif
 
 ifneq (,$(filter $(PLATFORM_FLAVOR),mx8mp_libra_fpsc))
@@ -653,6 +657,31 @@ $(call force,CFG_CORE_HUK_SUBKEY_COMPAT_USE_OTP_DIE_ID,n)
 endif
 CFG_IMX_OCOTP ?= y
 CFG_IMX_DIGPROG ?= y
+
+# Drive the eMMC RPMB partition from the core through a uSDHC controller
+# (CFG_RPMB_CORE_DRIVER), so that RPMB secure storage is available before
+# any normal world software runs. CFG_IMX_USDHC_BASE is the controller,
+# CFG_IMX_USDHC_CCM_CCGR its clock gate index and CFG_IMX_USDHC_CCM_TARGET
+# the offset of its root clock target register.
+#
+# The controller and its eMMC become TEE-owned. The platform must ensure:
+# - the boot loader and the kernel do not use the controller (disable it
+#   in their device trees; on the i.MX 8M Plus EVK this is uSDHC3, so
+#   they boot from another device);
+# - the controller is a secure bus master (CSU SA register for uSDHC3 on
+#   the i.MX 8M Plus, set in TF-A), so that its DMA reaches the buffer
+#   in secure memory;
+# - the CSU (or TZASC) keeps the non-secure world off the controller
+#   registers, if the threat model needs it.
+# The driver re-enables the clock root and gate before every transfer
+# because the kernel clock framework switches unused ones off.
+CFG_IMX_USDHC ?= n
+$(eval $(call cfg-depends-all,CFG_IMX_USDHC,CFG_RPMB_CORE_DRIVER))
+ifeq ($(CFG_IMX_USDHC),y)
+ifeq (,$(CFG_IMX_USDHC_BASE)$(CFG_IMX_USDHC_CCM_CCGR)$(CFG_IMX_USDHC_CCM_TARGET))
+$(error CFG_IMX_USDHC needs CFG_IMX_USDHC_BASE, CFG_IMX_USDHC_CCM_CCGR and CFG_IMX_USDHC_CCM_TARGET)
+endif
+endif
 CFG_PKCS11_TA ?= y
 CFG_CORE_HUK_SUBKEY_COMPAT_USE_OTP_DIE_ID ?= y
 

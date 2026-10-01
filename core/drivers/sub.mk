@@ -64,6 +64,7 @@ srcs-$(CFG_LS_SEC_MON) += ls_sec_mon.c
 srcs-$(CFG_LS_SFP) += ls_sfp.c
 srcs-$(CFG_IMX_RNGB) += imx_rngb.c
 srcs-$(CFG_IMX_OCOTP) += imx_ocotp.c
+srcs-$(CFG_IMX_USDHC) += imx_usdhc.c
 srcs-$(CFG_IMX_CAAM) += imx_caam.c
 srcs-$(CFG_IMX_SCU) += imx_scu.c
 srcs-$(CFG_IMX_CSU) += imx_csu.c

@@ -26,6 +26,7 @@
 #include <string.h>
 #include <sys/queue.h>
 #include <string_ext.h>
+#include <tee/rpmb_dev.h>
 #include <tee/tee_fs.h>
 #include <tee/tee_fs_key_manager.h>
 #include <tee/tee_pobj.h>
@@ -441,6 +442,160 @@ struct tee_rpmb_mem {
 	struct rpmb_data_frame *resp_data;
 };
 
+#ifdef CFG_RPMB_CORE_DRIVER
+/*
+ * With a driver in the core the frames never leave the TEE: they live in a
+ * core buffer instead of the normal world shared memory cache, and the
+ * driver moves them to and from the device. RPMB operations are serialised
+ * (rpmb_mutex) and callers keep no buffer beyond one operation, so a single
+ * buffer that grows on demand is enough.
+ */
+static const struct rpmb_dev_ops *rpmb_dev;
+static bool rpmb_dev_reported;
+static void *rpmb_dev_buf;
+static size_t rpmb_dev_buf_size;
+
+TEE_Result rpmb_dev_register(const struct rpmb_dev_ops *ops)
+{
+	if (!ops || !ops->get_dev_info || !ops->read || !ops->write)
+		return TEE_ERROR_BAD_PARAMETERS;
+	if (rpmb_dev)
+		return TEE_ERROR_BAD_STATE;
+
+	rpmb_dev = ops;
+
+	return TEE_SUCCESS;
+}
+
+static TEE_Result rpmb_dev_alloc(size_t req_size, size_t resp_size,
+				 struct tee_rpmb_mem *mem)
+{
+	size_t size = 0;
+
+	if (ADD_OVERFLOW(req_size, resp_size, &size))
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	if (size > rpmb_dev_buf_size) {
+		void *p = realloc(rpmb_dev_buf, size);
+
+		if (!p)
+			return TEE_ERROR_OUT_OF_MEMORY;
+		rpmb_dev_buf = p;
+		rpmb_dev_buf_size = size;
+	}
+	memset(rpmb_dev_buf, 0, size);
+
+	*mem = (struct tee_rpmb_mem){
+		.req_size = req_size,
+		.resp_offs = req_size,
+		.resp_size = resp_size,
+		.req_data = rpmb_dev_buf,
+		.resp_data = (void *)((uint8_t *)rpmb_dev_buf + req_size),
+	};
+
+	return TEE_SUCCESS;
+}
+
+/*
+ * Hand the request frames to the device and read the response back. The
+ * eMMC returns the result of an authenticated write only when asked for
+ * it, so those requests are followed by a result-read request before the
+ * response is read.
+ */
+static TEE_Result rpmb_dev_invoke(struct tee_rpmb_mem *mem)
+{
+	size_t req_frames = mem->req_size / RPMB_DATA_FRAME_SIZE;
+	size_t resp_frames = mem->resp_size / RPMB_DATA_FRAME_SIZE;
+	struct rpmb_data_frame *req = mem->req_data;
+	uint16_t msg_type = 0;
+	TEE_Result res = TEE_SUCCESS;
+
+	if (!rpmb_dev)
+		return TEE_ERROR_ITEM_NOT_FOUND;
+	if (!req_frames || !resp_frames)
+		return TEE_ERROR_BAD_PARAMETERS;
+
+	res = rpmb_dev->write(req, req_frames);
+	if (res)
+		return res;
+
+	bytes_to_u16(req[0].msg_type, &msg_type);
+	if (msg_type == RPMB_MSG_TYPE_REQ_AUTH_KEY_PROGRAM ||
+	    msg_type == RPMB_MSG_TYPE_REQ_AUTH_DATA_WRITE) {
+		memset(mem->resp_data, 0, RPMB_DATA_FRAME_SIZE);
+		u16_to_bytes(RPMB_MSG_TYPE_REQ_RESULT_READ,
+			     mem->resp_data[0].msg_type);
+		res = rpmb_dev->write(mem->resp_data, 1);
+		if (res)
+			return res;
+		resp_frames = 1;
+	}
+
+	return rpmb_dev->read(mem->resp_data, resp_frames);
+}
+
+static TEE_Result rpmb_dev_probe_reset(void)
+{
+	if (!rpmb_dev)
+		return TEE_ERROR_ITEM_NOT_FOUND;
+
+	rpmb_ctx->legacy_operation = false;
+	rpmb_ctx->dev_id = 0;
+	rpmb_ctx->shm_type = THREAD_SHM_TYPE_KERNEL_PRIVATE;
+	rpmb_dev_reported = false;
+
+	return TEE_SUCCESS;
+}
+
+/*
+ * There is exactly one device behind the driver. The caller walks the probe
+ * until it finds a usable device or is told there are no more, so report
+ * the device once and then end the list.
+ */
+static TEE_Result rpmb_dev_probe_next(struct rpmb_dev_info *dev_info)
+{
+	TEE_Result res = TEE_SUCCESS;
+
+	if (rpmb_dev_reported)
+		return TEE_ERROR_ITEM_NOT_FOUND;
+
+	*dev_info = (struct rpmb_dev_info){
+		.ret_code = RPMB_CMD_GET_DEV_INFO_RET_OK,
+	};
+	res = rpmb_dev->get_dev_info(dev_info->cid, &dev_info->rpmb_size_mult,
+				     &dev_info->rel_wr_sec_c);
+	if (res)
+		return res;
+
+	rpmb_ctx->dev_type = OPTEE_RPC_RPMB_EMMC;
+	rpmb_dev_reported = true;
+
+	return TEE_SUCCESS;
+}
+#else
+static TEE_Result rpmb_dev_alloc(size_t req_size __unused,
+				 size_t resp_size __unused,
+				 struct tee_rpmb_mem *mem __unused)
+{
+	return TEE_ERROR_NOT_SUPPORTED;
+}
+
+static TEE_Result rpmb_dev_invoke(struct tee_rpmb_mem *mem __unused)
+{
+	return TEE_ERROR_NOT_SUPPORTED;
+}
+
+static TEE_Result rpmb_dev_probe_reset(void)
+{
+	return TEE_ERROR_NOT_SUPPORTED;
+}
+
+static TEE_Result rpmb_dev_probe_next(struct rpmb_dev_info *dev_info __unused)
+{
+	return TEE_ERROR_NOT_SUPPORTED;
+}
+#endif /* CFG_RPMB_CORE_DRIVER */
+
 static TEE_Result tee_rpmb_alloc(size_t req_size, size_t resp_size,
 				 struct tee_rpmb_mem *mem)
 {
@@ -451,6 +606,9 @@ static TEE_Result tee_rpmb_alloc(size_t req_size, size_t resp_size,
 
 	if (!mem)
 		return TEE_ERROR_BAD_PARAMETERS;
+
+	if (IS_ENABLED(CFG_RPMB_CORE_DRIVER))
+		return rpmb_dev_alloc(req_size, resp_size, mem);
 
 	if (rpmb_ctx->legacy_operation)
 		req_size += sizeof(struct rpmb_req);
@@ -495,6 +653,9 @@ static TEE_Result tee_rpmb_invoke(struct tee_rpmb_mem *mem)
 	};
 	uint32_t cmd = OPTEE_RPC_CMD_RPMB_FRAMES;
 
+	if (IS_ENABLED(CFG_RPMB_CORE_DRIVER))
+		return rpmb_dev_invoke(mem);
+
 	if (rpmb_ctx->legacy_operation)
 		cmd = OPTEE_RPC_CMD_RPMB;
 
@@ -507,6 +668,9 @@ static TEE_Result rpmb_probe_reset(void)
 		[0] = THREAD_PARAM_VALUE(OUT, 0, 0, 0),
 	};
 	TEE_Result res = TEE_SUCCESS;
+
+	if (IS_ENABLED(CFG_RPMB_CORE_DRIVER))
+		return rpmb_dev_probe_reset();
 
 	res = thread_rpc_cmd(OPTEE_RPC_CMD_RPMB_PROBE_RESET, 1, params);
 	if (res)
@@ -533,6 +697,9 @@ static TEE_Result rpmb_probe_next(struct rpmb_dev_info *dev_info)
 	TEE_Result res = TEE_SUCCESS;
 	struct mobj *mobj = NULL;
 	void *va = NULL;
+
+	if (IS_ENABLED(CFG_RPMB_CORE_DRIVER))
+		return rpmb_dev_probe_next(dev_info);
 
 	va = thread_rpc_shm_cache_alloc(THREAD_SHM_CACHE_USER_RPMB,
 					THREAD_SHM_TYPE_KERNEL_PRIVATE,
