@@ -1365,6 +1365,18 @@ $(error "CFG_VERAISON_ATTESTATION_PTA_TEST_KEY must be enabled")
 endif
 endif
 
+# When enabled, CFG_VERAISON_ATTESTATION_PTA_PLATFORM_CLAIMS takes the
+# signer-id and the security lifecycle of the PSA token from the platform
+# instead of fixed test values. Supported on i.MX with CFG_IMX_OCOTP=y,
+# where the signer-id is the SRK hash and the lifecycle follows the SRK
+# and SEC_CONFIG fuses.
+CFG_VERAISON_ATTESTATION_PTA_PLATFORM_CLAIMS ?= n
+ifeq ($(CFG_VERAISON_ATTESTATION_PTA_PLATFORM_CLAIMS),y)
+ifneq ($(CFG_IMX_OCOTP),y)
+$(error "CFG_VERAISON_ATTESTATION_PTA_PLATFORM_CLAIMS needs CFG_IMX_OCOTP=y")
+endif
+endif
+
 # CFG_SEMIHOSTING_CONSOLE, when enabled, embeds a semihosting console driver.
 # When CFG_SEMIHOSTING_CONSOLE_FILE=NULL, OP-TEE console reads/writes
 # trace messages from/to the debug terminal of the semihosting host computer.
