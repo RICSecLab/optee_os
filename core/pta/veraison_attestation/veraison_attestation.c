@@ -18,6 +18,7 @@
 
 #include "cbor.h"
 #include "hash.h"
+#include "platform.h"
 #include "sign.h"
 
 #define PTA_NAME "veraison_attestation.pta"
@@ -30,7 +31,6 @@
 #define CLIENT_ID 1
 #define LIFECYCLE 12288
 #define MEASURMENT_TYPE "PRoT"
-#define SIGNER_ID_LEN 32
 
 /* clang-format off */
 #define SIGNER_ID {                                                \
@@ -86,9 +86,9 @@ static TEE_Result cmd_get_cbor_evidence(uint32_t param_types,
 
 	const char eat_profile[] = EAT_PROFILE;
 	const int psa_client_id = CLIENT_ID;
-	const int psa_security_lifecycle = LIFECYCLE;
+	int psa_security_lifecycle = LIFECYCLE;
 	const char measurement_type[] = MEASURMENT_TYPE;
-	const uint8_t signer_id[SIGNER_ID_LEN] = SIGNER_ID;
+	uint8_t signer_id[SIGNER_ID_LEN] = SIGNER_ID;
 	uint8_t psa_instance_id[INSTANCE_ID_LEN] = { };
 	struct signing_key skey = { };
 
@@ -122,6 +122,15 @@ static TEE_Result cmd_get_cbor_evidence(uint32_t param_types,
 	status = compute_instance_id(&skey, psa_instance_id);
 	if (status != TEE_SUCCESS)
 		return status;
+
+	if (IS_ENABLED(CFG_VERAISON_ATTESTATION_PTA_PLATFORM_CLAIMS)) {
+		status = platform_get_signer_id(signer_id);
+		if (status != TEE_SUCCESS)
+			return status;
+		status = platform_get_lifecycle(&psa_security_lifecycle);
+		if (status != TEE_SUCCESS)
+			return status;
+	}
 
 	/* Calculate measurement hash of memory */
 	status = get_hash_ta_memory(measurement_value);
