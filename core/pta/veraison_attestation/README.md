@@ -44,11 +44,34 @@ verifies the boot images against, and the lifecycle is derived from the SRK
 and SEC_CONFIG fuses (no SRK hash: assembly and test; SRK hash on an open
 device: PSA RoT provisioning; closed device: secured).
 
+## Software components
+
+The evidence lists two software components:
+
+- `ARoT`: the SHA-256 of the read-only memory of the calling TA, as
+  before.
+- `PRoT`: the TEE core. The measurement-value is the SHA-256 of the
+  core's `.text` and `.rodata`, over the same ranges as
+  `PTA_ATTESTATION_HASH_TEE_MEMORY` of the attestation PTA, and the
+  version field is `TEE_IMPL_VERSION` of the build. The value can be
+  computed ahead of time from `tee.elf`: hash the ranges
+  `__text_start..__text_data_start`, `__text_data_end..__text_end`,
+  `__rodata_start..__rodata_end` (plus the `_init` and `_pageable`
+  ranges with `CFG_WITH_PAGER=y`) in that order. Note that the core
+  version string, which the build date is part of, lies in `.rodata`:
+  the value only matches between builds that are reproducible.
+
+Both carry the same signer-id. The core measures itself, so the
+component does not protect against a compromised core (see Known
+Limitations); what it gives a verifier is the identity of the build
+that secure boot started, so that outdated or unexpected builds, which
+are still correctly signed, can be told apart.
+
 ## Known Limitations
 
 1. **PSA Semantics Limitations:** Although this PTA reuses the PSA token format, many of the relevant properties required by the PSA Security Model (SM) are not met. This can impact the effectiveness and security assumptions typically expected from PSA-based attestation.
 
-2. **Lack of Trust in the PTA:** The attestation evidence produced by the PTA attests to the memory contents of the calling TA, but there is no mechanism to establish trust in the PTA itself from a lower-level entity, such as the bootloader. Without such anchoring to a platform Root of Trust (RoT), the PTA lacks foundational trust, which weakens the overall chain of trust. A CAAM-held signing key and the fuse-derived claims tie the evidence to the device and to its secure boot configuration, but they do not measure the PTA or OP-TEE itself.
+2. **Lack of Trust in the PTA:** The attestation evidence produced by the PTA attests to the memory contents of the calling TA and of the TEE core, but both measurements are taken by the core itself: there is no mechanism to establish trust in the PTA from a lower-level entity, such as the bootloader. Without such anchoring to a platform Root of Trust (RoT), the PTA lacks foundational trust, which weakens the overall chain of trust. A CAAM-held signing key and the fuse-derived claims tie the evidence to the device and to its secure boot configuration, and the evidence is only as trustworthy as the core that secure boot started.
 
 ## References
 
