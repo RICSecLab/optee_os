@@ -3,9 +3,9 @@
  * Copyright (C) 2024, Institute of Information Security (IISEC)
  */
 
-#include <base64.h>
 #include <config.h>
 #include <crypto/crypto.h>
+#include <kernel/linker.h>
 #include <kernel/pseudo_ta.h>
 #include <kernel/ts_manager.h>
 #include <kernel/user_ta.h>
@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <tee/uuid.h>
+#include <util.h>
 
 #ifdef CFG_NXP_CAAM
 #include <drivers/caam_extension.h>
@@ -33,6 +34,8 @@
 #define EAT_PROFILE "http://arm.com/psa/2.0.0"
 #define LIFECYCLE 12288
 #define TA_MEASUREMENT_TYPE "ARoT"
+#define TEE_MEASUREMENT_TYPE "PRoT"
+#define TEE_VERSION_MAX_LEN 32
 
 /* clang-format off */
 #define SIGNER_ID {                                                \
@@ -117,6 +120,21 @@ out:
 	return res;
 }
 
+/*
+ * Version of the TEE core: the first word of the core version string, that
+ * is TEE_IMPL_VERSION (for instance "4.6.0" or "4.6.0-12-gabcdef0-dev"),
+ * without the compiler, build count and date that follow it.
+ */
+static void get_tee_version(char *out, size_t out_len)
+{
+	size_t n = 0;
+
+	while (n < out_len - 1 && core_v_str[n] && core_v_str[n] != ' ')
+		n++;
+	memcpy(out, core_v_str, n);
+	out[n] = '\0';
+}
+
 static TEE_Result cmd_get_cbor_evidence(uint32_t param_types,
 					TEE_Param params[TEE_NUM_PARAMS])
 {
@@ -131,14 +149,30 @@ static TEE_Result cmd_get_cbor_evidence(uint32_t param_types,
 	const char eat_profile[] = EAT_PROFILE;
 	int psa_client_id = 0;
 	int psa_security_lifecycle = LIFECYCLE;
-	const char measurement_type[] = TA_MEASUREMENT_TYPE;
 	uint8_t signer_id[SIGNER_ID_LEN] = SIGNER_ID;
 	uint8_t psa_instance_id[INSTANCE_ID_LEN] = { };
 	struct signing_key skey = { };
 
-	uint8_t measurement_value[TEE_SHA256_HASH_SIZE] = { 0 };
-	size_t b64_measurement_value_len = TEE_SHA256_HASH_SIZE * 2;
-	char b64_measurement_value[TEE_SHA256_HASH_SIZE * 2] = { 0 };
+	uint8_t ta_measurement[TEE_SHA256_HASH_SIZE] = { };
+	uint8_t tee_measurement[TEE_SHA256_HASH_SIZE] = { };
+	char tee_version[TEE_VERSION_MAX_LEN] = { };
+	struct psa_sw_component components[2] = {
+		{
+			.measurement_type = TA_MEASUREMENT_TYPE,
+			.measurement_value = ta_measurement,
+			.measurement_value_len = sizeof(ta_measurement),
+			.signer_id = signer_id,
+			.signer_id_len = sizeof(signer_id),
+		},
+		{
+			.measurement_type = TEE_MEASUREMENT_TYPE,
+			.measurement_value = tee_measurement,
+			.measurement_value_len = sizeof(tee_measurement),
+			.version = tee_version,
+			.signer_id = signer_id,
+			.signer_id_len = sizeof(signer_id),
+		},
+	};
 
 	UsefulBufC ubc_cbor_evidence = { NULL, 0 };
 	UsefulBufC ubc_cose_evidence = { NULL, 0 };
@@ -180,19 +214,17 @@ static TEE_Result cmd_get_cbor_evidence(uint32_t param_types,
 			return status;
 	}
 
-	/* Calculate measurement hash of memory */
-	status = get_hash_ta_memory(measurement_value);
+	/* Measure the calling TA and the TEE core */
+	status = get_hash_ta_memory(ta_measurement);
 	if (status != TEE_SUCCESS)
 		return status;
-
-	/* Encode measurement_value to base64 */
-	if (!base64_enc(measurement_value, TEE_SHA256_HASH_SIZE,
-			b64_measurement_value,
-			&b64_measurement_value_len)) {
-		DMSG("Failed to encode measurement_value to base64");
-		return TEE_ERROR_GENERIC;
-	}
-	DMSG("b64_measurement_value: %s", b64_measurement_value);
+	status = get_hash_tee_memory(tee_measurement);
+	if (status != TEE_SUCCESS)
+		return status;
+	get_tee_version(tee_version, sizeof(tee_version));
+	DHEXDUMP(ta_measurement, sizeof(ta_measurement));
+	DHEXDUMP(tee_measurement, sizeof(tee_measurement));
+	DMSG("TEE version: %s", tee_version);
 
 	/* Encode evidence to CBOR */
 	ubc_cbor_evidence = generate_cbor_evidence(eat_profile,
@@ -200,15 +232,12 @@ static TEE_Result cmd_get_cbor_evidence(uint32_t param_types,
 						   psa_security_lifecycle,
 						   psa_implementation_id,
 						   psa_implementation_id_len,
-						   measurement_type,
-						   signer_id,
-						   SIGNER_ID_LEN,
+						   components,
+						   ARRAY_SIZE(components),
 						   psa_instance_id,
 						   INSTANCE_ID_LEN,
 						   nonce,
-						   nonce_sz,
-						   measurement_value,
-						   TEE_SHA256_HASH_SIZE);
+						   nonce_sz);
 	if (UsefulBuf_IsNULLC(ubc_cbor_evidence)) {
 		DMSG("Failed to encode evidence to CBOR");
 		return TEE_ERROR_GENERIC;
