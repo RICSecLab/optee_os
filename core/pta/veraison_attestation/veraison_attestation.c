@@ -33,7 +33,7 @@
 
 #define EAT_PROFILE "http://arm.com/psa/2.0.0"
 #define LIFECYCLE 12288
-#define MEASURMENT_TYPE "PRoT"
+#define TA_MEASUREMENT_TYPE "ARoT"
 
 /* Signer of the boot images when the platform does not say */
 static const uint8_t test_boot_signer_id[SIGNER_ID_LEN] = {
@@ -165,7 +165,7 @@ static TEE_Result cmd_get_cbor_evidence(uint32_t param_types,
 	const char eat_profile[] = EAT_PROFILE;
 	int psa_client_id = 0;
 	int psa_security_lifecycle = LIFECYCLE;
-	const char measurement_type[] = MEASURMENT_TYPE;
+	const char measurement_type[] = TA_MEASUREMENT_TYPE;
 	uint8_t signer_id[SIGNER_ID_LEN] = { };
 	uint8_t psa_instance_id[INSTANCE_ID_LEN] = { };
 	const struct signing_key *skey = NULL;
